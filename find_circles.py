@@ -1,8 +1,11 @@
 #!/usr/bin/python
 
+import getopt
 import random
 import sys
 import cv
+
+__all__ = ['find_concentric_circles', 'circles_to_pairs']
 
 def dist_sqr(c1, c2):
     return (c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2
@@ -60,6 +63,16 @@ def random_color():
                      random.uniform(0,255))
 
 def find_concentric_circles(image_in):
+    """
+    Find concentric circles in an image. The concentric circles it finds are
+    solid white circles surrounded by 3 rings: A black ring, a white ring, and
+    a black ring.
+
+    image_in: A binary image to search for concentric circles.
+
+    Generates a pairs, each pair being the x,y coordinates of a concentric
+    circle.
+    """
     image = cv.CloneImage(image_in)
     contours = cv.FindContours(image, cv.CreateMemStorage(0))
 
@@ -95,6 +108,17 @@ def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
 
 
 def circles_to_pairs(image, circles):
+    """
+    Given a set of coordinates of concentric circles, attempt to find pairs
+    with a 10-bit barcode between them.
+
+    image: Binary image that contains the concentric circles and barcodes.
+    circles: Coordinates of concentric circles in the image. The output of 
+             find_concentric_circles() can be used here.
+
+    Return a dict from numbers (the barcode's value) to a pair of circle
+    coordinates (the coordinates of the CCs either side of the barcode).
+    """
     valid_numbers = set([0,2,3,4,5,6,7])
     out = {}
 
@@ -108,16 +132,30 @@ def circles_to_pairs(image, circles):
 
 
 if __name__=="__main__":
-    if len(sys.argv) < 2:
-        raise Exception("Please provide an image as argument")
+    optlist, args = getopt.getopt(sys.argv[1:], 'i:o:t:')
 
-    image = cv.LoadImage(sys.argv[1], False)
-    color_image = cv.LoadImage(sys.argv[1], True)
+    in_file_name = None
+    out_file_name = None
+    thresh_file_name = None
+    for opt, param in optlist:
+        if opt == "-i":
+            in_file_name = param
+        if opt == "-o":
+            out_file_name = param
+        if opt == "-t":
+            thresh_file_name = param
+        
+    if not in_file_name or not out_file_name:
+        raise Exception("Usage: %s -i <input image> -o <output image> [-t <output threshold image>]" % sys.argv[0])
+
+    image = cv.LoadImage(in_file_name, False)
+    color_image = cv.LoadImage(in_file_name, True)
     cv.AdaptiveThreshold(image, image, 255.,
                          cv.CV_ADAPTIVE_THRESH_MEAN_C, 
                          cv.CV_THRESH_BINARY,
                          blockSize=21)
-    cv.SaveImage('threshold.png', image)
+    if thresh_file_name:
+        cv.SaveImage(thresh_file_name, image)
 
     circles = list(find_concentric_circles(image))
 
@@ -132,5 +170,5 @@ if __name__=="__main__":
         cv.PutText(color_image, "%da" % num, tuple(map(int, c1)), font, cv.CV_RGB(255, 0, 255))
         cv.PutText(color_image, "%db" % num, tuple(map(int, c2)), font, cv.CV_RGB(255, 0, 255))
 
-    cv.SaveImage('out.png', color_image)
+    cv.SaveImage(out_file_name, color_image)
 
