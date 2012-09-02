@@ -132,7 +132,7 @@ def read_barcodes(image, circles):
     return out
 
 
-def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None):
+def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, centre_origin=False):
     """
     Find concentric circles in an image, which are identified with a barcode.
 
@@ -162,6 +162,10 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None):
     if annotate_image:
         for name, circle in pairs.iteritems():
             cv.PutText(annotate_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
+
+    if centre_origin:
+        pairs = dict((key, (x - 0.5*image_in.width, 0.5*image_in.height - y))
+                        for key, (x, y) in pairs.iteritems())
 
     return pairs
 

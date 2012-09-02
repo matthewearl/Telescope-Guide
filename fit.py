@@ -1,7 +1,10 @@
 #!/usr/bin/python
 
+import getopt, sys, math, cv
+
+import numpy
 from numpy import *
-import math
+import find_circles
 
 __all__ = ['solve']
 
@@ -31,7 +34,7 @@ def sub_jacobian_point_rotation_x(x, y, z):
     return matrix([[-x*y/z**2], [-1 - (y/z)**2]])
 
 def sub_jacobian_point_rotation_y(x, y, z):
-    return matrix([[-1 - (x/z)**2], [-x*y/z**2]])
+    return matrix([[1 + (x/z)**2], [x*y/z**2]])
 
 def sub_jacobian_point_rotation_z(x, y, z):
     return matrix([[-y/z], [x/z]])
@@ -55,7 +58,7 @@ def sub_jacobian_point(x, y, z, pixel_scale):
 
 def make_jacobian(points, pixel_scale):
     points = array(points)
-    return vstack(sub_jacobian_point(*p, pixel_scale) for p in points)
+    return vstack(sub_jacobian_point(*p, pixel_scale=pixel_scale) for p in points)
 
 def matrix_rotate_x(theta):
     s = math.sin(theta)
@@ -87,10 +90,13 @@ def matrix_trans(x, y, z):
                    [0.0, 0.0, 1.0,   z],
                    [0.0, 0.0, 0.0, 1.0]])
 
+def matrix_normalize(m):
+
+
 def matrix_invert(m):
     return vstack([hstack([m[:3, :3].T, -m[:3, 3:4]]), m[3:4, :]])
 
-def solve(world_points, image_points):
+def solve(world_points, image_points, annotate_image=None):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -105,7 +111,7 @@ def solve(world_points, image_points):
             pixel scale.
     """
 
-    assert world_points.keys() >= image_points.keys()
+    assert set(world_points.keys()) >= set(image_points.keys())
     keys = list(image_points.keys())
     world_points = hstack([matrix(list(world_points[k]) + [1.0]).T for k in keys])
     image_points = hstack([matrix(image_points[k]).T for k in keys])
@@ -114,23 +120,57 @@ def solve(world_points, image_points):
     current_ps  = 500.0
 
     def camera_to_image(m, ps):
-        return matrix([[c[0] / c[2], c[1] / c[2]] for c in m.T]).T * ps
+        return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
+
+    def test_jacobian(J, camera_points, ps):
+        theta = 0.001
+        
+        params = [("Trans X", matrix_trans(theta, 0.0, 0.0)),
+                  ("Trans Y", matrix_trans(0.0, theta, 0.0)),
+                  ("Trans Z", matrix_trans(0.0, 0.0, theta)),
+                  ("Rot X", matrix_rotate_x(theta)),
+                  ("Rot Y", matrix_rotate_y(theta)),
+                  ("Rot Z", matrix_rotate_z(theta))]
+
+        params = [(name, camera_to_image(mat * camera_points, ps)) for name, mat in params]
+        params += [("Zoom", camera_to_image(camera_points, ps + theta))]
+
+        points_before = camera_to_image(camera_points, ps)
+        for idx, (name, points_after) in enumerate(params):
+            points_delta = J * matrix([[0.0]] * idx + [[theta]] + [[0.0]] * (6 - idx))
+
+            print "Testing %s" % name
+            print "Estimate: %s" % points_delta.flatten()
+            print "Actual: %s" % (points_after - points_before).T
+            print "Diff: %s" % (points_delta.flatten() - (points_after - points_before).T.flatten())
+            print
+
 
     while True:
         camera_points = current_mat * world_points
-        err = image_points - camera_to_screen(camera_points, current_ps)
-        print "Error: %s" % err
+        err = image_points - camera_to_image(camera_points, current_ps)
+        #print "Error: %s" % err
 
-        J = make_jacobian(camera_points.T, current_ps)
+        J = make_jacobian(camera_points.T[:, :3], current_ps)
+        
+        #test_jacobian(J, camera_points, current_ps)
 
-        param_delta = ((J.T . J).I * J.T) * (0.1 * err)
+        err = err.T.reshape(2 * len(keys), 1)
+        param_delta = numpy.linalg.pinv(J) * (0.01 * err)
 
-        current_mat = matrix_rotate_x(param_delta[0]) * current_mat
-        current_mat = matrix_rotate_y(param_delta[1]) * current_mat
-        current_mat = matrix_rotate_z(param_delta[2]) * current_mat
-        current_mat = matrix_trans(*param_delta[3:6]) * current_mat
+        print "Error: %f" % (err.T * err)[0, 0]
 
-        current_ps += param_delta[6]
+        print "Param delta: %s" % param_delta
+        current_mat = matrix_trans(param_delta[0, 0],
+                                   param_delta[1, 0],
+                                   param_delta[2, 0]) * current_mat
+        current_mat = matrix_rotate_x(param_delta[3, 0]) * current_mat
+        current_mat = matrix_rotate_y(param_delta[4, 0]) * current_mat
+        current_mat = matrix_rotate_z(param_delta[5, 0]) * current_mat
+        current_ps += param_delta[6, 0]
+
+        import time
+        time.sleep(1)
     
     return matrix_invert(current_mat), current_ps
     
@@ -144,12 +184,18 @@ if __name__ == "__main__":
         if opt == "-i":
             in_file_name = param
 
-    if not in_file_name or not out_file_name:
+    if not in_file_name:
         raise Exception("Usage: %s -i <input image>" % sys.argv[0])
 
+    print "Loading image (black and white)"
     image = cv.LoadImage(in_file_name, False)
+    print "Loading image (colour)"
     color_image = cv.LoadImage(in_file_name, True)
-    image_circles = find_labelled_circles(image, thresh_file_name, color_image)
-
+    print "Finding labelled circles"
+    image_circles = find_circles.find_labelled_circles(image,
+                                                       annotate_image=color_image,
+                                                       centre_origin=True)
+    print image_circles
+    print "Solving"
     solve(world_circles, image_circles)
 
