@@ -5,7 +5,7 @@ import random
 import sys
 import cv
 
-__all__ = ['find_concentric_circles', 'circles_to_pairs']
+__all__ = ['find_concentric_circles', 'find_circles']
 
 def dist_sqr(c1, c2):
     return (c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2
@@ -107,7 +107,7 @@ def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     return sum(v * 2**(7 - i) for i, v in enumerate(bars[6:-6]))
 
 
-def circles_to_pairs(image, circles):
+def find_circles(image, circles):
     """
     Given a set of coordinates of concentric circles, attempt to find pairs
     with a 10-bit barcode between them.
@@ -126,7 +126,8 @@ def circles_to_pairs(image, circles):
         for i2, c2 in enumerate(circles):
             bc = read_bar_code(image, c1, c2)
             if bc != None and bc in valid_numbers:
-                out[bc] = (c1, c2)
+                out["%da" % bc] = c1
+                out["%db" % bc] = c2
                     
     return out
 
@@ -165,10 +166,9 @@ if __name__ == "__main__":
        cv.Circle(color_image, coords, 5, cv.CV_RGB(0, 255, 0))
        cv.Circle(color_image, coords, 7, cv.CV_RGB(255, 255, 255))
 
-    pairs = circles_to_pairs(image, circles)
-    for num, (c1, c2) in pairs.iteritems():
-        cv.PutText(color_image, "%da" % num, tuple(map(int, c1)), font, cv.CV_RGB(255, 0, 255))
-        cv.PutText(color_image, "%db" % num, tuple(map(int, c2)), font, cv.CV_RGB(255, 0, 255))
+    pairs = find_circles(image, circles)
+    for name, circle in pairs.iteritems():
+        cv.PutText(color_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
 
     cv.SaveImage(out_file_name, color_image)
 
