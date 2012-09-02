@@ -8,6 +8,10 @@ import find_circles
 
 __all__ = ['solve']
 
+MAX_ANGLE_DELTA = 30.0 * math.pi / 180
+STEP_FRACTION = 0.001
+ERROR_CUTOFF = 0.00000001
+
 # sub_jacobian_point_<transformation>()
 #
 # Gives:
@@ -162,35 +166,41 @@ def solve(world_points, image_points, annotate_image=None):
             print
 
 
-    for i in xrange(10):
+    last_err_float = None
+    while True:
+        # Calculate the Jacobian
         camera_points = current_mat * world_points
-        if annotate_image and i == 9 :
-            draw_points(annotate_image,
-                        dict(zip(["%s%d" % (k, i) for k in keys], camera_to_image(camera_points, current_ps).T)))
         err = image_points - camera_to_image(camera_points, current_ps)
-        #print "Error: %s" % err
-
         J = make_jacobian(camera_points.T[:, :3], current_ps)
-        J = matrix(hstack((J[:, 0:1], J[:, 3:4], J[:, 4:5])))
-        
         #test_jacobian(J, camera_points, current_ps)
 
+        # Invert the Jacobian and calculate the change in parameters.
+        # Limit angle changes to avoid chaotic behaviour.
         err = err.T.reshape(2 * len(keys), 1)
-        param_delta = numpy.linalg.pinv(J) * (0.1 * err)
+        param_delta = numpy.linalg.pinv(J) * (STEP_FRACTION * err)
+        max_angle = reduce(max, list(array(param_delta)[3:6].flatten()))
+        #if max_angle > MAX_ANGLE_DELTA:
+        #    param_delta *= (MAX_ANGLE_DELTA / max_angle)
 
-        print "Error: %f" % (err.T * err)[0, 0]
+        # Calculate the error (as sum of squares), and abort if the error has
+        # stopped decreasing.
+        err_float = (err.T * err)[0, 0]
+        print "Error: %f" % err_float
+        if last_err_float != None and abs(err_float - last_err_float) < ERROR_CUTOFF:
+            break
+        last_err_float = err_float
 
-        print "Param delta: %s" % param_delta
-        current_mat = matrix_trans(param_delta[0, 0], 0.0, 0.0) * current_mat
-        #                           param_delta[1, 0],
-        #                           param_delta[2, 0]) * current_mat
-        current_mat = matrix_rotate_x(param_delta[1, 0]) * current_mat
-        current_mat = matrix_rotate_y(param_delta[2, 0]) * current_mat
-        #current_mat = matrix_rotate_z(param_delta[3, 0]) * current_mat
-        #current_ps += param_delta[6, 0]
+        # Apply the parameter delta.
+        current_mat = matrix_trans(param_delta[0, 0], param_delta[1, 0], param_delta[2, 0]) * current_mat
+        current_mat = matrix_rotate_x(param_delta[3, 0]) * current_mat
+        current_mat = matrix_rotate_y(param_delta[4, 0]) * current_mat
+        current_mat = matrix_rotate_z(param_delta[5, 0]) * current_mat
+        current_ps += param_delta[6, 0]
+        matrix_normalize(current_mat)
 
-        import time
-        time.sleep(1)
+    if annotate_image:
+        draw_points(annotate_image,
+                    dict(zip(keys, camera_to_image(camera_points, current_ps).T)))
     
     return matrix_invert(current_mat), current_ps
     
