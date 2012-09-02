@@ -99,12 +99,12 @@ def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
 
     if bars[:6] != [False, True] * 3:
         return None
-    if bars[-5:] != [False] + [True, False] * 2:
+    if bars[-6:] != [False, False] + [True, False] * 2:
         return None
     if color_image:
         for x, y in zip(xvals, yvals):
             cv.Circle(color_image, (int(x), int(y)), 2, cv.CV_RGB(0, 255, 255))
-    return sum(v * 2**(8 - i) for i, v in enumerate(bars[6:-5]))
+    return sum(v * 2**(7 - i) for i, v in enumerate(bars[6:-6]))
 
 
 def circles_to_pairs(image, circles):
@@ -119,7 +119,7 @@ def circles_to_pairs(image, circles):
     Return a dict from numbers (the barcode's value) to a pair of circle
     coordinates (the coordinates of the CCs either side of the barcode).
     """
-    valid_numbers = set([0,2,3,4,5,6,7])
+    valid_numbers = set(range(24))
     out = {}
 
     for i1, c1 in enumerate(circles):
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     cv.AdaptiveThreshold(image, image, 255.,
                          cv.CV_ADAPTIVE_THRESH_MEAN_C, 
                          cv.CV_THRESH_BINARY,
-                         blockSize=21)
+                         blockSize=31)
     if thresh_file_name:
         cv.SaveImage(thresh_file_name, image)
 
