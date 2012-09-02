@@ -90,11 +90,27 @@ def matrix_trans(x, y, z):
                    [0.0, 0.0, 1.0,   z],
                    [0.0, 0.0, 0.0, 1.0]])
 
-def matrix_normalize(m):
-
-
 def matrix_invert(m):
     return vstack([hstack([m[:3, :3].T, -m[:3, 3:4]]), m[3:4, :]])
+
+
+def matrix_normalize(m):
+    m[2:3, :3] = cross(m[0:1, :3], m[1:2, :3])
+    m[2:3, :3] /= float(matrix(m[2:3, :3]) * matrix(m[2:3, :3]).T)
+    m[0:1, :3] = cross(m[1:2, :3], m[2:3, :3])
+    m[0:1, :3] /= float(matrix(m[0:1, :3]) * matrix(m[0:1, :3]).T)
+    m[1:2, :3] = cross(m[2:3, :3], m[0:1, :3])
+    m[1:2, :3] /= float(matrix(m[1:2, :3]) * matrix(m[1:2, :3]).T)
+
+    m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
+
+
+def draw_points(image, points):
+    font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
+    for name, point in points.iteritems():
+        point = (int(point[0, 0] + image.width/2),
+                 int(image.height/2 - point[0, 1]))
+        cv.PutText(image, name, point, font, cv.CV_RGB(255, 255, 0))
 
 def solve(world_points, image_points, annotate_image=None):
     """
@@ -117,7 +133,7 @@ def solve(world_points, image_points, annotate_image=None):
     image_points = hstack([matrix(image_points[k]).T for k in keys])
 
     current_mat = matrix_trans(0.0, 0.0, 500.0) 
-    current_ps  = 500.0
+    current_ps  = 1500.0
 
     def camera_to_image(m, ps):
         return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
@@ -146,28 +162,32 @@ def solve(world_points, image_points, annotate_image=None):
             print
 
 
-    while True:
+    for i in xrange(10):
         camera_points = current_mat * world_points
+        if annotate_image and i == 9 :
+            draw_points(annotate_image,
+                        dict(zip(["%s%d" % (k, i) for k in keys], camera_to_image(camera_points, current_ps).T)))
         err = image_points - camera_to_image(camera_points, current_ps)
         #print "Error: %s" % err
 
         J = make_jacobian(camera_points.T[:, :3], current_ps)
+        J = matrix(hstack((J[:, 0:1], J[:, 3:4], J[:, 4:5])))
         
         #test_jacobian(J, camera_points, current_ps)
 
         err = err.T.reshape(2 * len(keys), 1)
-        param_delta = numpy.linalg.pinv(J) * (0.01 * err)
+        param_delta = numpy.linalg.pinv(J) * (0.1 * err)
 
         print "Error: %f" % (err.T * err)[0, 0]
 
         print "Param delta: %s" % param_delta
-        current_mat = matrix_trans(param_delta[0, 0],
-                                   param_delta[1, 0],
-                                   param_delta[2, 0]) * current_mat
-        current_mat = matrix_rotate_x(param_delta[3, 0]) * current_mat
-        current_mat = matrix_rotate_y(param_delta[4, 0]) * current_mat
-        current_mat = matrix_rotate_z(param_delta[5, 0]) * current_mat
-        current_ps += param_delta[6, 0]
+        current_mat = matrix_trans(param_delta[0, 0], 0.0, 0.0) * current_mat
+        #                           param_delta[1, 0],
+        #                           param_delta[2, 0]) * current_mat
+        current_mat = matrix_rotate_x(param_delta[1, 0]) * current_mat
+        current_mat = matrix_rotate_y(param_delta[2, 0]) * current_mat
+        #current_mat = matrix_rotate_z(param_delta[3, 0]) * current_mat
+        #current_ps += param_delta[6, 0]
 
         import time
         time.sleep(1)
@@ -176,16 +196,20 @@ def solve(world_points, image_points, annotate_image=None):
     
 
 if __name__ == "__main__":
-    world_circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, 85.0 * y + (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+    world_circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, -85.0 * y - (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
 
-    optlist, args = getopt.getopt(sys.argv[1:], 'i:')
+    optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 
+    in_file_name = None
+    out_file_name = None
     for opt, param in optlist:
         if opt == "-i":
             in_file_name = param
+        if opt == "-o":
+            out_file_name = param
 
     if not in_file_name:
-        raise Exception("Usage: %s -i <input image>" % sys.argv[0])
+        raise Exception("Usage: %s -i <input image> [-o <output image>]" % sys.argv[0])
 
     print "Loading image (black and white)"
     image = cv.LoadImage(in_file_name, False)
@@ -197,5 +221,8 @@ if __name__ == "__main__":
                                                        centre_origin=True)
     print image_circles
     print "Solving"
-    solve(world_circles, image_circles)
+    solve(world_circles, image_circles, annotate_image=color_image)
+
+    if out_file_name:
+        cv.SaveImage(out_file_name, color_image)
 
