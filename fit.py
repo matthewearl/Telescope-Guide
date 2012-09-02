@@ -13,26 +13,26 @@ __all__ = ['solve']
 #    Py(x, y, z) = y / z
 # 
 # and theta is the parameter of <transformation>.
-# Transformations are applied to the camera, and rotations are CCW about the
+# Transformations are applied to the world, and rotations are CCW about the
 # axis of rotation.
 
 def sub_jacobian_point_translation_x(x, y, z):
-    return matrix([[-1/z], [0.0]])
+    return matrix([[1/z], [0.0]])
 
 def sub_jacobian_point_translation_y(x, y, z):
-    return matrix([[0.0], [-1/z]])
+    return matrix([[0.0], [1/z]])
 
 def sub_jacobian_point_translation_z(x, y, z):
-    return matrix([[x/z**2], [y/z**2]])
+    return matrix([[-x/z**2], [-y/z**2]])
 
 def sub_jacobian_point_rotation_x(x, y, z):
-    return matrix([[x*y/z**2], [1 + (y/z)**2]])
+    return matrix([[-x*y/z**2], [-1 - (y/z)**2]])
 
 def sub_jacobian_point_rotation_y(x, y, z):
-    return matrix([[1 + (x/z)**2], [x*y/z**2]])
+    return matrix([[-1 - (x/z)**2], [-x*y/z**2]])
 
 def sub_jacobian_point_rotation_z(x, y, z):
-    return matrix([[y/z], [-x/z]])
+    return matrix([[-y/z], [x/z]])
 
 def sub_jacobian_point(x, y, z, pixel_scale):
     """
@@ -51,8 +51,9 @@ def sub_jacobian_point(x, y, z, pixel_scale):
 
     return out
 
-def make_jacobian(points):
-    return vstack(sub_jacobian_point(*p) for p in points)
+def make_jacobian(points, pixel_scale):
+    points = array(points)
+    return vstack(sub_jacobian_point(*p, pixel_scale) for p in points)
 
 def matrix_rotate_x(theta):
     s = math.sin(theta)
@@ -84,14 +85,17 @@ def matrix_trans(x, y, z):
                    [0.0, 0.0, 1.0,   z],
                    [0.0, 0.0, 0.0, 1.0]])
 
-def solve(world_points, camera_points)
+def matrix_invert(m):
+    return vstack([hstack([m[:3, :3].T, -m[:3, 3:4]]), m[3:4, :]])
+
+def solve(world_points, image_points):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
 
     world_points: Dict mapping point names to triples corresponding with world
                   x, y, z coordinates.
-    camera_points: Dict mapping point names to triples corresponding with
+    image_points: Dict mapping point names to triples corresponding with
                   camera x, y coordinates. Coordinates are translated such that
                   0, 0 corresponds with the centre of the image.
 
@@ -99,14 +103,36 @@ def solve(world_points, camera_points)
             pixel scale.
     """
 
-    assert world_points.keys() == camera_points.keys()
-
+    assert world_points.keys() == image_points.keys()
     keys = list(world_points.keys())
+    world_points = hstack([matrix(list(world_points[k]) + [1.0]).T for k in keys])
+    image_points = hstack([matrix(image_points[k]).T for k in keys])
 
-    current_mat = matrix_trans(0.0, 0.0, -500.0) 
+    current_mat = matrix_trans(0.0, 0.0, 500.0) 
     current_ps  = 500.0
 
+    def camera_to_image(m, ps):
+        return matrix([[c[0] / c[2], c[1] / c[2]] for c in m.T]).T * ps
+
+    while True:
+        camera_points = current_mat * world_points
+        err = image_points - camera_to_screen(camera_points, current_ps)
+        print "Error: %s" % err
+
+        J = make_jacobian(camera_points.T, current_ps)
+
+        param_delta = ((J.T . J).I * J.T) * (0.1 * err)
+
+        current_mat = matrix_rotate_x(param_delta[0]) * current_mat
+        current_mat = matrix_rotate_y(param_delta[1]) * current_mat
+        current_mat = matrix_rotate_z(param_delta[2]) * current_mat
+        current_mat = matrix_trans(*param_delta[3:6]) * current_mat
+
+        current_ps += param_delta[6]
+    
+    return matrix_invert(current_mat), current_ps
+    
 
 if __name__ == "__main__":
-    circles = dict(("%d%s" % (x + 8 * y, l, 0.0), (25.0 * x, 85.0 * y + (0 if l == 'a' else 50.0))) for y in range(3) for x in range(8) for l in ('a', 'b'))
+    circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, 85.0 * y + (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
 

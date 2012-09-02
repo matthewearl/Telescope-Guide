@@ -131,7 +131,7 @@ def circles_to_pairs(image, circles):
     return out
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:t:')
 
     in_file_name = None
