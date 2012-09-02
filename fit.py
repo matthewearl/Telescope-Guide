@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 from numpy import *
 import math
 
@@ -103,8 +105,8 @@ def solve(world_points, image_points):
             pixel scale.
     """
 
-    assert world_points.keys() == image_points.keys()
-    keys = list(world_points.keys())
+    assert world_points.keys() >= image_points.keys()
+    keys = list(image_points.keys())
     world_points = hstack([matrix(list(world_points[k]) + [1.0]).T for k in keys])
     image_points = hstack([matrix(image_points[k]).T for k in keys])
 
@@ -134,5 +136,20 @@ def solve(world_points, image_points):
     
 
 if __name__ == "__main__":
-    circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, 85.0 * y + (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+    world_circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, 85.0 * y + (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+
+    optlist, args = getopt.getopt(sys.argv[1:], 'i:')
+
+    for opt, param in optlist:
+        if opt == "-i":
+            in_file_name = param
+
+    if not in_file_name or not out_file_name:
+        raise Exception("Usage: %s -i <input image>" % sys.argv[0])
+
+    image = cv.LoadImage(in_file_name, False)
+    color_image = cv.LoadImage(in_file_name, True)
+    image_circles = find_labelled_circles(image, thresh_file_name, color_image)
+
+    solve(world_circles, image_circles)
 

@@ -107,7 +107,7 @@ def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     return sum(v * 2**(7 - i) for i, v in enumerate(bars[6:-6]))
 
 
-def find_circles(image, circles):
+def read_barcodes(image, circles):
     """
     Given a set of coordinates of concentric circles, attempt to find pairs
     with a 10-bit barcode between them.
@@ -132,6 +132,40 @@ def find_circles(image, circles):
     return out
 
 
+def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None):
+    """
+    Find concentric circles in an image, which are identified with a barcode.
+
+    image_in: Image to search.
+    thresh_file_name: (Optional.) File to dump threshold image in.
+    annotate_image: (Optional.) Image to annotate with intermediate circles and
+                    output.
+    """
+    image = cv.CloneImage(image_in)
+    cv.AdaptiveThreshold(image, image, 255.,
+                         cv.CV_ADAPTIVE_THRESH_MEAN_C, 
+                         cv.CV_THRESH_BINARY,
+                         blockSize=31)
+    if thresh_file_name:
+        cv.SaveImage(thresh_file_name, image)
+
+    circles = list(find_concentric_circles(image))
+
+    if annotate_image:
+        font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
+        for i, coords in enumerate(circles):
+           coords = tuple(map(int, coords))
+           cv.Circle(annotate_image, coords, 5, cv.CV_RGB(0, 255, 0))
+           cv.Circle(annotate_image, coords, 7, cv.CV_RGB(255, 255, 255))
+
+    pairs = read_barcodes(image, circles)
+    if annotate_image:
+        for name, circle in pairs.iteritems():
+            cv.PutText(annotate_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
+
+    return pairs
+
+
 if __name__ == "__main__":
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:t:')
 
@@ -151,24 +185,7 @@ if __name__ == "__main__":
 
     image = cv.LoadImage(in_file_name, False)
     color_image = cv.LoadImage(in_file_name, True)
-    cv.AdaptiveThreshold(image, image, 255.,
-                         cv.CV_ADAPTIVE_THRESH_MEAN_C, 
-                         cv.CV_THRESH_BINARY,
-                         blockSize=31)
-    if thresh_file_name:
-        cv.SaveImage(thresh_file_name, image)
-
-    circles = list(find_concentric_circles(image))
-
-    font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
-    for i, coords in enumerate(circles):
-       coords = tuple(map(int, coords))
-       cv.Circle(color_image, coords, 5, cv.CV_RGB(0, 255, 0))
-       cv.Circle(color_image, coords, 7, cv.CV_RGB(255, 255, 255))
-
-    pairs = find_circles(image, circles)
-    for name, circle in pairs.iteritems():
-        cv.PutText(color_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
+    print find_labelled_circles(image, thresh_file_name, color_image)
 
     cv.SaveImage(out_file_name, color_image)
 
