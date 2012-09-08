@@ -5,12 +5,14 @@ import getopt, sys, math, cv
 import numpy
 from numpy import *
 import find_circles
+import util
 
 __all__ = ['solve']
 
 MAX_ANGLE_DELTA = 30.0 * math.pi / 180
-STEP_FRACTION = 0.001
-ERROR_CUTOFF = 0.00000001
+MAX_DELTA = 5000.0
+STEP_FRACTION = 0.01
+ERROR_CUTOFF = 0.000001
 
 # sub_jacobian_point_<transformation>()
 #
@@ -108,14 +110,6 @@ def matrix_normalize(m):
 
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
-
-def draw_points(image, points):
-    font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
-    for name, point in points.iteritems():
-        point = (int(point[0, 0] + image.width/2),
-                 int(image.height/2 - point[0, 1]))
-        cv.PutText(image, name, point, font, cv.CV_RGB(255, 255, 0))
-
 def solve(world_points, image_points, annotate_image=None):
     """
     Find a camera's orientation and pixel scale given a set of world
@@ -137,7 +131,7 @@ def solve(world_points, image_points, annotate_image=None):
     image_points = hstack([matrix(image_points[k]).T for k in keys])
 
     current_mat = matrix_trans(0.0, 0.0, 500.0) 
-    current_ps  = 1500.0
+    current_ps  = 2500.64
 
     def camera_to_image(m, ps):
         return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
@@ -172,6 +166,7 @@ def solve(world_points, image_points, annotate_image=None):
         camera_points = current_mat * world_points
         err = image_points - camera_to_image(camera_points, current_ps)
         J = make_jacobian(camera_points.T[:, :3], current_ps)
+        J = matrix(J[:, :6])
         #test_jacobian(J, camera_points, current_ps)
 
         # Invert the Jacobian and calculate the change in parameters.
@@ -179,8 +174,11 @@ def solve(world_points, image_points, annotate_image=None):
         err = err.T.reshape(2 * len(keys), 1)
         param_delta = numpy.linalg.pinv(J) * (STEP_FRACTION * err)
         max_angle = reduce(max, list(array(param_delta)[3:6].flatten()))
-        #if max_angle > MAX_ANGLE_DELTA:
-        #    param_delta *= (MAX_ANGLE_DELTA / max_angle)
+        if max_angle > MAX_ANGLE_DELTA:
+            param_delta *= (MAX_ANGLE_DELTA / max_angle)
+        max_delta = reduce(max, list(array(param_delta).flatten()))
+        #if max_delta > MAX_DELTA:
+        #    param_delta = (MAX_DELTA / max_delta) * param_delta
 
         # Calculate the error (as sum of squares), and abort if the error has
         # stopped decreasing.
@@ -195,12 +193,15 @@ def solve(world_points, image_points, annotate_image=None):
         current_mat = matrix_rotate_x(param_delta[3, 0]) * current_mat
         current_mat = matrix_rotate_y(param_delta[4, 0]) * current_mat
         current_mat = matrix_rotate_z(param_delta[5, 0]) * current_mat
-        current_ps += param_delta[6, 0]
+        #current_ps += param_delta[6, 0]
+        if current_ps < 0.0:
+            current_ps = -current_ps
+            current_mat = -current_mat
         matrix_normalize(current_mat)
 
     if annotate_image:
-        draw_points(annotate_image,
-                    dict(zip(keys, camera_to_image(camera_points, current_ps).T)))
+        util.draw_points(annotate_image,
+                         dict(zip(keys, camera_to_image(camera_points, current_ps).T)))
     
     return matrix_invert(current_mat), current_ps
     
@@ -231,7 +232,7 @@ if __name__ == "__main__":
                                                        centre_origin=True)
     print image_circles
     print "Solving"
-    solve(world_circles, image_circles, annotate_image=color_image)
+    print solve(world_circles, image_circles, annotate_image=color_image)
 
     if out_file_name:
         cv.SaveImage(out_file_name, color_image)
