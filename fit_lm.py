@@ -207,7 +207,7 @@ def solve(world_points, image_points, annotate_image=None):
     
 
 if __name__ == "__main__":
-    world_circles = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, -85.0 * y - (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+    world_circles = util.get_circle_pattern()
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 
