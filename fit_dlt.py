@@ -1,6 +1,9 @@
 #!/usr/bin/python
 
+import getopt, sys, cv
+import numpy
 from numpy import *
+import find_circles
 import util
 
 __all__ = ['solve']
@@ -37,21 +40,22 @@ def solve(world_points, image_points, annotate_image=None):
     assert len(keys) >= 6
 
     M = vstack([correspondence_matrix(world_points[key], image_points[key]) for key in keys])
-
-    eig_vals, eig_vecs = np.linalg.eig(M)
-    P = eig_vecs[eig_vals.argsort()][0]
+    eig_vals, eig_vecs = numpy.linalg.eig(M.T * M)
+    P = (eig_vecs.T[eig_vals.argmin()]).T
+    
     P = P.reshape((3, 4))
-
     if annotate_image:
-        world_points_mat = hstack([matrix(list(world_points[k]) + [1.0]).T for k in keys])
+        all_keys = list(world_points.keys())
+        world_points_mat = hstack([matrix(list(world_points[k]) + [1.0]).T for k in all_keys])
         image_points_mat = P * world_points_mat
+        image_points_mat = matrix([[r[0,0]/r[0,2], r[0,1]/r[0,2]] for r in image_points_mat.T]).T
         util.draw_points(annotate_image,
-                         dict(zip(keys, list(image_points_mat.T))))
+                         dict(zip(all_keys, list(image_points_mat.T))))
 
     return P
 
 if __name__ == "__main__":
-    world_circles = util.get_circle_pattern()
+    world_circles = util.get_circle_pattern(roll_radius=71.)
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 

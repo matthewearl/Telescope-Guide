@@ -1,4 +1,5 @@
 import cv
+import math
 
 __all__ = ['draw_points', 'get_circle_pattern']
 
@@ -15,6 +16,12 @@ def draw_points(image, points):
                  int(image.height/2 - point[0, 1]))
         cv.PutText(image, name, point, font, cv.CV_RGB(255, 255, 0))
 
-def get_circle_pattern():
-    return dict(("%d%s" % (x + 8 * y, l), (25.0 * x, -85.0 * y - (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+
+def get_circle_pattern(roll_radius=None):
+    out = dict(("%d%s" % (x + 8 * y, l), (25.0 * x, -85.0 * y - (0 if l == 'a' else 50.0), 0.0)) for y in range(3) for x in range(8) for l in ('a', 'b'))
+
+    if roll_radius != None:
+        out = dict((key, (roll_radius * math.sin(x/roll_radius), y, -roll_radius * math.cos(x/roll_radius))) for (key, (x, y, z)) in out.iteritems())
+
+    return out
 

@@ -110,7 +110,7 @@ def matrix_normalize(m):
 
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
-def solve(world_points, image_points, annotate_image=None):
+def solve(world_points_in, image_points, annotate_image=None):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -125,9 +125,9 @@ def solve(world_points, image_points, annotate_image=None):
             pixel scale.
     """
 
-    assert set(world_points.keys()) >= set(image_points.keys())
+    assert set(world_points_in.keys()) >= set(image_points.keys())
     keys = list(image_points.keys())
-    world_points = hstack([matrix(list(world_points[k]) + [1.0]).T for k in keys])
+    world_points = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in keys])
     image_points = hstack([matrix(image_points[k]).T for k in keys])
 
     current_mat = matrix_trans(0.0, 0.0, 500.0) 
@@ -200,14 +200,17 @@ def solve(world_points, image_points, annotate_image=None):
         matrix_normalize(current_mat)
 
     if annotate_image:
+        all_keys = list(world_points_in.keys())
+        all_world_points = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in all_keys])
+        all_camera_points = current_mat * all_world_points
         util.draw_points(annotate_image,
-                         dict(zip(keys, camera_to_image(camera_points, current_ps).T)))
+                         dict(zip(all_keys, camera_to_image(all_camera_points, current_ps).T)))
     
     return matrix_invert(current_mat), current_ps
     
 
 if __name__ == "__main__":
-    world_circles = util.get_circle_pattern()
+    world_circles = util.get_circle_pattern(roll_radius=71.)
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 
