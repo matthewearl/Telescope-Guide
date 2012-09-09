@@ -88,15 +88,28 @@ def find_concentric_circles(image_in):
            contourNum += 1
        contours = contours.h_next()
 
-    for cluster in spacialHash.clusters(1, min_cluster_size=4):
+    for cluster in spacialHash.clusters(2, min_cluster_size=4):
         yield tuple(sum(x)/len(x) for x in zip(*[coords for obj, coords in cluster]))
 
 def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
-    xvals = [p1[0] + (i + 0.5) * (p2[0] - p1[0])/num_bars for i in xrange(num_bars)]
-    yvals = [p1[1] + (i + 0.5) * (p2[1] - p1[1])/num_bars for i in xrange(num_bars)]
+    samples_per_bar = 10
+    num_samples = samples_per_bar * num_bars
+    xvals = [p1[0] + i * (p2[0] - p1[0])/num_samples for i in xrange(num_samples)]
+    yvals = [p1[1] + i * (p2[1] - p1[1])/num_samples for i in xrange(num_samples)]
 
-    bars = [image[y, x] < 128.0 for x, y in zip(xvals, yvals)]
+    samples = [image[y, x] < 128.0 for x, y in zip(xvals, yvals)]
 
+    bars = []
+    next_bar_middle = samples_per_bar // 2
+    for i in xrange(1,num_samples):
+        if i == next_bar_middle:
+            bars += [samples[i]]
+            next_bar_middle += samples_per_bar
+        if samples[i - 1] != samples[i]:
+            next_bar_middle = i + samples_per_bar // 2
+
+    if len(bars) != num_bars:
+        return None
     if bars[:6] != [False, True] * 3:
         return None
     if bars[-6:] != [False, False] + [True, False] * 2:
@@ -107,7 +120,7 @@ def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     return sum(v * 2**(7 - i) for i, v in enumerate(bars[6:-6]))
 
 
-def read_barcodes(image, circles):
+def read_barcodes(image, circles, annotate_image=None):
     """
     Given a set of coordinates of concentric circles, attempt to find pairs
     with a 10-bit barcode between them.
@@ -124,7 +137,7 @@ def read_barcodes(image, circles):
 
     for i1, c1 in enumerate(circles):
         for i2, c2 in enumerate(circles):
-            bc = read_bar_code(image, c1, c2)
+            bc = read_bar_code(image, c1, c2, color_image=annotate_image)
             if bc != None and bc in valid_numbers:
                 out["%da" % bc] = c1
                 out["%db" % bc] = c2
@@ -158,7 +171,7 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, 
            cv.Circle(annotate_image, coords, 5, cv.CV_RGB(0, 255, 0))
            cv.Circle(annotate_image, coords, 7, cv.CV_RGB(255, 255, 255))
 
-    pairs = read_barcodes(image, circles)
+    pairs = read_barcodes(image, circles, annotate_image)
     if annotate_image:
         for name, circle in pairs.iteritems():
             cv.PutText(annotate_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
