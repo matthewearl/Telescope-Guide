@@ -62,9 +62,28 @@ def sub_jacobian_point(x, y, z, pixel_scale):
 
     return out
 
-def make_jacobian(points, pixel_scale):
+def make_single_jacobian(points, pixel_scale):
     points = array(points)
     return vstack(sub_jacobian_point(*p, pixel_scale=pixel_scale) for p in points)
+
+def make_jacobian(points, keys, pixel_scale):
+    Js = []
+    idx = 0
+    keys_idx = 0
+    while idx < len(points) and keys_idx < len(keys):
+        J = make_single_jacobian(points[idx:(idx + len(keys[keys_idx])), :], pixel_scale)
+        M = zeros((J.shape[0], 6*len(keys) + 1))
+        M[:, (6*keys_idx):(6*keys_idx + 6)] = J[:, :6]
+        M[:, -1:] = J[:, 6:]
+        Js.append(M)
+
+        idx += len(keys[keys_idx])
+        keys_idx += 1
+
+    assert idx == len(points) and keys_idx == len(keys)
+
+    return vstack(Js)
+
 
 def matrix_rotate_x(theta):
     s = math.sin(theta)
@@ -110,28 +129,29 @@ def matrix_normalize(m):
 
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
-def solve(world_points_in, image_points, annotate_image=None):
+def solve(world_points_in, image_points, annotate_images=None):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
 
     world_points: Dict mapping point names to triples corresponding with world
                   x, y, z coordinates.
-    image_points: Dict mapping point names to triples corresponding with
+    image_points: Array of dicts mapping point names to triples corresponding with
                   camera x, y coordinates. Coordinates are translated such that
                   0, 0 corresponds with the centre of the image.
+                  One array element per source image.
 
     Return: 4x4 matrix representing the camera's orientation, and a pixel
             pixel scale.
     """
 
-    assert set(world_points_in.keys()) >= set(image_points.keys())
-    keys = list(image_points.keys())
-    world_points = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in keys])
-    image_points = hstack([matrix(image_points[k]).T for k in keys])
+    assert all(set(world_points_in.keys()) >= set(p.keys()) for p in image_points)
+    keys = [list(p.keys()) for p in image_points]
+    world_points = [hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in sub_keys]) for sub_keys in keys]
+    image_points = hstack([hstack([matrix(p[k]).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
 
-    current_mat = matrix_trans(0.0, 0.0, 500.0) 
-    current_ps  = 2500.64
+    current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
+    current_ps  = 3059.7776822502801
 
     def camera_to_image(m, ps):
         return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
@@ -159,24 +179,22 @@ def solve(world_points_in, image_points, annotate_image=None):
             print "Diff: %s" % (points_delta.flatten() - (points_after - points_before).T.flatten())
             print
 
-
     last_err_float = None
     while True:
         # Calculate the Jacobian
-        camera_points = current_mat * world_points
+        camera_points = hstack([m * p for m, p in zip(current_mat, world_points)])
         err = image_points - camera_to_image(camera_points, current_ps)
-        J = make_jacobian(camera_points.T[:, :3], current_ps)
-        J = matrix(J[:, :6])
+        J = make_jacobian(camera_points.T[:, :3], keys, current_ps)
         #test_jacobian(J, camera_points, current_ps)
 
         # Invert the Jacobian and calculate the change in parameters.
         # Limit angle changes to avoid chaotic behaviour.
-        err = err.T.reshape(2 * len(keys), 1)
+        err = err.T.reshape(2 * sum(len(sub_keys) for sub_keys in keys), 1)
         param_delta = numpy.linalg.pinv(J) * (STEP_FRACTION * err)
-        max_angle = reduce(max, list(array(param_delta)[3:6].flatten()))
-        if max_angle > MAX_ANGLE_DELTA:
-            param_delta *= (MAX_ANGLE_DELTA / max_angle)
-        max_delta = reduce(max, list(array(param_delta).flatten()))
+        #max_angle = reduce(max, list(array(param_delta)[3:6].flatten()))
+        #if max_angle > MAX_ANGLE_DELTA:
+        #    param_delta *= (MAX_ANGLE_DELTA / max_angle)
+        #max_delta = reduce(max, list(array(param_delta).flatten()))
         #if max_delta > MAX_DELTA:
         #    param_delta = (MAX_DELTA / max_delta) * param_delta
 
@@ -189,24 +207,27 @@ def solve(world_points_in, image_points, annotate_image=None):
         last_err_float = err_float
 
         # Apply the parameter delta.
-        current_mat = matrix_trans(param_delta[0, 0], param_delta[1, 0], param_delta[2, 0]) * current_mat
-        current_mat = matrix_rotate_x(param_delta[3, 0]) * current_mat
-        current_mat = matrix_rotate_y(param_delta[4, 0]) * current_mat
-        current_mat = matrix_rotate_z(param_delta[5, 0]) * current_mat
-        #current_ps += param_delta[6, 0]
-        if current_ps < 0.0:
-            current_ps = -current_ps
-            current_mat = -current_mat
-        matrix_normalize(current_mat)
+        for i in xrange(len(keys)):
+            current_mat[i] = matrix_trans(param_delta[6 * i + 0, 0], param_delta[6 * i + 1, 0], param_delta[6 * i + 2, 0]) * current_mat[i]
+            current_mat[i] = matrix_rotate_x(param_delta[6 * i + 3, 0]) * current_mat[i]
+            current_mat[i] = matrix_rotate_y(param_delta[6 * i + 4, 0]) * current_mat[i]
+            current_mat[i] = matrix_rotate_z(param_delta[6 * i + 5, 0]) * current_mat[i]
+            matrix_normalize(current_mat[i])
 
-    if annotate_image:
+        current_ps += param_delta[6 * len(keys), 0]
+        #if current_ps < 0.0:
+        #    current_ps = -current_ps
+        #    current_mat = -current_mat
+
+    if annotate_images:
         all_keys = list(world_points_in.keys())
         all_world_points = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in all_keys])
-        all_camera_points = current_mat * all_world_points
-        util.draw_points(annotate_image,
-                         dict(zip(all_keys, camera_to_image(all_camera_points, current_ps).T)))
+        for i, annotate_image in enumerate(annotate_images):
+            all_camera_points = current_mat[i] * all_world_points
+            util.draw_points(annotate_image,
+                             dict(zip(all_keys, camera_to_image(all_camera_points, current_ps).T)))
     
-    return matrix_invert(current_mat), current_ps
+    return [matrix_invert(M) for M in current_mat], current_ps
     
 
 if __name__ == "__main__":
@@ -214,29 +235,30 @@ if __name__ == "__main__":
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 
-    in_file_name = None
-    out_file_name = None
+    in_file_names = []
+    out_file_names = []
     for opt, param in optlist:
         if opt == "-i":
-            in_file_name = param
+            in_file_names += [param]
         if opt == "-o":
-            out_file_name = param
+            out_file_names += [param]
 
-    if not in_file_name:
+    if not in_file_names:
         raise Exception("Usage: %s -i <input image> [-o <output image>]" % sys.argv[0])
 
-    print "Loading image (black and white)"
-    image = cv.LoadImage(in_file_name, False)
+    print "Loading images (black and white)"
+    images = [cv.LoadImage(in_file_name, False) for in_file_name in in_file_names]
     print "Loading image (colour)"
-    color_image = cv.LoadImage(in_file_name, True)
+    color_images = [cv.LoadImage(in_file_name, True) for in_file_name in in_file_names]
     print "Finding labelled circles"
-    image_circles = find_circles.find_labelled_circles(image,
-                                                       annotate_image=color_image,
-                                                       centre_origin=True)
+    image_circles = [find_circles.find_labelled_circles(image,
+                                                        annotate_image=color_image,
+                                                        centre_origin=True)
+                        for image, color_image in zip(images, color_images)]
     print image_circles
     print "Solving"
-    print solve(world_circles, image_circles, annotate_image=color_image)
+    print solve(world_circles, image_circles, annotate_images=color_images)
 
-    if out_file_name:
-        cv.SaveImage(out_file_name, color_image)
+    for i, out_file_name in enumerate(out_file_names):
+        cv.SaveImage(out_file_name, color_images[i])
 
