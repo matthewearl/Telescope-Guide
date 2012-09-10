@@ -129,7 +129,7 @@ def matrix_normalize(m):
 
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
-def solve(world_points_in, image_points, annotate_images=None):
+def solve(world_points_in, image_points, annotate_images=None, initial_matrices=None, change_ps=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -150,7 +150,10 @@ def solve(world_points_in, image_points, annotate_images=None):
     world_points = [hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in sub_keys]) for sub_keys in keys]
     image_points = hstack([hstack([matrix(p[k]).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
 
-    current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
+    if initial_matrices:
+        current_mat = [matrix_invert(m) for m in initial_matrices]
+    else:
+        current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
     current_ps  = 3059.7776822502801
 
     def camera_to_image(m, ps):
@@ -185,6 +188,8 @@ def solve(world_points_in, image_points, annotate_images=None):
         camera_points = hstack([m * p for m, p in zip(current_mat, world_points)])
         err = image_points - camera_to_image(camera_points, current_ps)
         J = make_jacobian(camera_points.T[:, :3], keys, current_ps)
+        if not change_ps:
+            J = J[:, :-1]
         #test_jacobian(J, camera_points, current_ps)
 
         # Invert the Jacobian and calculate the change in parameters.
@@ -214,10 +219,8 @@ def solve(world_points_in, image_points, annotate_images=None):
             current_mat[i] = matrix_rotate_z(param_delta[6 * i + 5, 0]) * current_mat[i]
             matrix_normalize(current_mat[i])
 
-        current_ps += param_delta[6 * len(keys), 0]
-        #if current_ps < 0.0:
-        #    current_ps = -current_ps
-        #    current_mat = -current_mat
+        if change_ps:
+            current_ps += param_delta[6 * len(keys), 0]
 
     if annotate_images:
         all_keys = list(world_points_in.keys())
@@ -257,7 +260,10 @@ if __name__ == "__main__":
                         for image, color_image in zip(images, color_images)]
     print image_circles
     print "Solving"
-    print solve(world_circles, image_circles, annotate_images=color_images)
+    Ms, ps = solve(world_circles, image_circles, annotate_images=color_images)
+
+    print "Solving for zoom"
+    print solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, change_ps=True)
 
     for i, out_file_name in enumerate(out_file_names):
         cv.SaveImage(out_file_name, color_images[i])
