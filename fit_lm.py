@@ -9,10 +9,8 @@ import util
 
 __all__ = ['solve']
 
-MAX_ANGLE_DELTA = 30.0 * math.pi / 180
-MAX_DELTA = 5000.0
-STEP_FRACTION = 0.01
-ERROR_CUTOFF = 0.000001
+STEP_FRACTION = 0.1
+ERROR_CUTOFF = 0.0001
 
 # sub_jacobian_point_<transformation>()
 #
@@ -129,17 +127,23 @@ def matrix_normalize(m):
 
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
-def solve(world_points_in, image_points, annotate_images=None, initial_matrices=None, change_ps=False):
+def solve(world_points_in, image_points, annotate_images=None,
+          initial_matrices=None, change_ps=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
 
     world_points: Dict mapping point names to triples corresponding with world
                   x, y, z coordinates.
-    image_points: Array of dicts mapping point names to triples corresponding with
-                  camera x, y coordinates. Coordinates are translated such that
-                  0, 0 corresponds with the centre of the image.
+    image_points: Array of dicts mapping point names to triples corresponding
+                  with camera x, y coordinates. Coordinates are translated such
+                  that 0, 0 corresponds with the centre of the image.
                   One array element per source image.
+    annotate_images: Optional array of images to annotate with the fitted
+                     points.
+    initial_matrices: Optional set of initial rotation matrices.
+    change_ps: If True, allow the pixel scale (zoom) to be varied. Algorithm
+               can be unstable if initial guess is inaccurate.
 
     Return: 4x4 matrix representing the camera's orientation, and a pixel
             pixel scale.
@@ -154,33 +158,10 @@ def solve(world_points_in, image_points, annotate_images=None, initial_matrices=
         current_mat = [matrix_invert(m) for m in initial_matrices]
     else:
         current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
-    current_ps  = 3059.7776822502801
+    current_ps = 2500.
 
     def camera_to_image(m, ps):
         return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
-
-    def test_jacobian(J, camera_points, ps):
-        theta = 0.001
-        
-        params = [("Trans X", matrix_trans(theta, 0.0, 0.0)),
-                  ("Trans Y", matrix_trans(0.0, theta, 0.0)),
-                  ("Trans Z", matrix_trans(0.0, 0.0, theta)),
-                  ("Rot X", matrix_rotate_x(theta)),
-                  ("Rot Y", matrix_rotate_y(theta)),
-                  ("Rot Z", matrix_rotate_z(theta))]
-
-        params = [(name, camera_to_image(mat * camera_points, ps)) for name, mat in params]
-        params += [("Zoom", camera_to_image(camera_points, ps + theta))]
-
-        points_before = camera_to_image(camera_points, ps)
-        for idx, (name, points_after) in enumerate(params):
-            points_delta = J * matrix([[0.0]] * idx + [[theta]] + [[0.0]] * (6 - idx))
-
-            print "Testing %s" % name
-            print "Estimate: %s" % points_delta.flatten()
-            print "Actual: %s" % (points_after - points_before).T
-            print "Diff: %s" % (points_delta.flatten() - (points_after - points_before).T.flatten())
-            print
 
     last_err_float = None
     while True:
@@ -190,18 +171,11 @@ def solve(world_points_in, image_points, annotate_images=None, initial_matrices=
         J = make_jacobian(camera_points.T[:, :3], keys, current_ps)
         if not change_ps:
             J = J[:, :-1]
-        #test_jacobian(J, camera_points, current_ps)
 
         # Invert the Jacobian and calculate the change in parameters.
         # Limit angle changes to avoid chaotic behaviour.
         err = err.T.reshape(2 * sum(len(sub_keys) for sub_keys in keys), 1)
         param_delta = numpy.linalg.pinv(J) * (STEP_FRACTION * err)
-        #max_angle = reduce(max, list(array(param_delta)[3:6].flatten()))
-        #if max_angle > MAX_ANGLE_DELTA:
-        #    param_delta *= (MAX_ANGLE_DELTA / max_angle)
-        #max_delta = reduce(max, list(array(param_delta).flatten()))
-        #if max_delta > MAX_DELTA:
-        #    param_delta = (MAX_DELTA / max_delta) * param_delta
 
         # Calculate the error (as sum of squares), and abort if the error has
         # stopped decreasing.

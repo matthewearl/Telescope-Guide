@@ -14,7 +14,7 @@ def dist_sqr(c1, c2):
     return (c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2
 
 class SpacialHash():
-    def __init__(self, box_size=5):
+    def __init__(self, box_size=20):
         self.box_size = box_size
         self.lookup = {}
 
@@ -47,7 +47,7 @@ class SpacialHash():
             for obj, coords in box.iteritems():
                 yield obj, coords
 
-    def clusters(self, radius, min_cluster_size=1):
+    def clusters(self, radius, min_cluster_size=1, max_cluster_size=None):
         out = {}
         already_clustered = set()
 
@@ -56,8 +56,11 @@ class SpacialHash():
             for neighbour, neighbour_coords in self.search(coords, radius):
                 if neighbour not in already_clustered:
                     cluster.append((neighbour, neighbour_coords))
+                    if max_cluster_size != None and len(cluster) > max_cluster_size:
+                        break
                     already_clustered.add(neighbour)
-            if len(cluster) >= min_cluster_size:
+            if len(cluster) >= min_cluster_size and \
+                (max_cluster_size == None or len(cluster) <= max_cluster_size):
                 yield cluster
 
 def random_color():
@@ -91,7 +94,9 @@ def find_concentric_circles(image_in):
            contourNum += 1
        contours = contours.h_next()
 
-    for cluster in spacialHash.clusters(OUTER_SEARCH_RADIUS, min_cluster_size=4):
+    for cluster in spacialHash.clusters(OUTER_SEARCH_RADIUS,
+                                        min_cluster_size=4,
+                                        max_cluster_size=4):
         if len(cluster) == 4:
             c1 = cluster[0][1]
             if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
