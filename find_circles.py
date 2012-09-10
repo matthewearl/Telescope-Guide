@@ -5,6 +5,9 @@ import random
 import sys
 import cv
 
+OUTER_SEARCH_RADIUS = 20
+INNER_SEARCH_RADIUS = 5
+
 __all__ = ['find_concentric_circles', 'find_circles']
 
 def dist_sqr(c1, c2):
@@ -88,8 +91,11 @@ def find_concentric_circles(image_in):
            contourNum += 1
        contours = contours.h_next()
 
-    for cluster in spacialHash.clusters(2, min_cluster_size=4):
-        yield tuple(sum(x)/len(x) for x in zip(*[coords for obj, coords in cluster]))
+    for cluster in spacialHash.clusters(OUTER_SEARCH_RADIUS, min_cluster_size=4):
+        if len(cluster) == 4:
+            c1 = cluster[0][1]
+            if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
+                yield tuple(sum(x)/len(x) for x in zip(*[coords for obj, coords in cluster]))
 
 def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     samples_per_bar = 10
