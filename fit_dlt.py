@@ -2,6 +2,7 @@
 
 import getopt, sys, cv
 import numpy
+import scipy.linalg
 from numpy import *
 import find_circles
 import util
@@ -44,6 +45,18 @@ def solve(world_points, image_points, annotate_image=None):
     P = (eig_vecs.T[eig_vals.argmin()]).T
     
     P = P.reshape((3, 4))
+    K, R = map(matrix, scipy.linalg.rq(P[:, :3]))
+    t = K.I * P[:, 3:]
+    R = hstack((R, t))
+
+    K = K / K[2,2]
+
+    #K[0, 1] = 0.0
+    #K[0, 2] = 0.0
+    #K[1, 2] = 0.0
+
+    P = K * R
+
     if annotate_image:
         all_keys = list(world_points.keys())
         world_points_mat = hstack([matrix(list(world_points[k]) + [1.0]).T for k in all_keys])
@@ -52,7 +65,8 @@ def solve(world_points, image_points, annotate_image=None):
         util.draw_points(annotate_image,
                          dict(zip(all_keys, list(image_points_mat.T))))
 
-    return P
+
+    return K, R
 
 if __name__ == "__main__":
     world_circles = util.get_circle_pattern(roll_radius=71.)
@@ -80,7 +94,9 @@ if __name__ == "__main__":
                                                        centre_origin=True)
     print image_circles
     print "Solving"
-    print solve(world_circles, image_circles, annotate_image=color_image)
+    K, R = solve(world_circles, image_circles, annotate_image=color_image)
+    print K
+    print R
 
     if out_file_name:
         cv.SaveImage(out_file_name, color_image)
