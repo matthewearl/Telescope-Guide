@@ -97,7 +97,7 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
     # orientation is still unknown.
     camera_points = matrix(array(image_points) * array(vstack([Z.T] * 3)))
     
-    # Compute the 3x4 matrix mapping world points onto projected points
+    # Compute the 3x4 matrix mapping world points onto scaled camera space points.
     world_points_4 = vstack([world_points, matrix([1.] * world_points.shape[1])])
     P = camera_points * right_inverse(world_points_4)
 
@@ -106,6 +106,16 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
     K, R = map(matrix, scipy.linalg.rq(P[:, :3]))
     t = K.I * P[:, 3:]
     R = hstack((R, t))
+
+    # Annotate the image, if we've been asked to do so.
+    if annotate_image:
+        all_keys = list(world_points.keys())
+        world_points_mat = hstack([matrix(list(world_points[k]) + [1.0]).T for k in all_keys])
+        image_points_mat = P * world_points_mat
+        image_points_mat = matrix([[r[0,0]/r[0,2], r[0,1]/r[0,2]] for r in image_points_mat.T]).T
+        image_points_mat *= pixel_scale
+        util.draw_points(annotate_image,
+                         dict(zip(all_keys, list(image_points_mat.T))))
 
     return K, R
     
