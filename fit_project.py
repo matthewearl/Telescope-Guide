@@ -33,11 +33,30 @@ def solve(world_points_in, image_points, pixel_scale, annotate_images=None):
     world_points = hstack([matrix(list(world_points_in[k])).T for k in keys)
             
     # Choose a "good" set of 4 basis indices
-    b
-
+    basis_indices = [0]
+    basis_indices += [argmax([numpy.linalg.norm(world_points[:, i]) for i in enumerate(keys)]]
+    def dist_from_line(idx):
+        v = world_points[:, idx] - world_points[:, basis_indices[0]]
+        d = world_points[:, basis_indices[1]] - world_points[:, basis_indices[0]]
+        d = d / numpy.linalg.norm(d)
+        v -= d * (d.T * v)[0, 0]
+        return numpy.linalg.norm(v)
+    basis_indices += [argmax([dist_from_line(i) for i in enumerate(keys)])]
+    def dist_from_plane(idx):
+        v = world_points[:, idx] - world_points[:, basis_indices[0]]
+        a = world_points[:, basis_indices[1]] - world_points[:, basis_indices[0]]
+        b = world_points[:, basis_indices[2]] - world_points[:, basis_indices[0]]
+        d = numpy.cross(a,b)
+        d = d / numpy.linalg.norm(d)
+        return abs((d.T * v)[0, 0])
+    basis_indices += [argmax([dist_from_plane(i) for i in enumerate(keys)])]
+    print "Basis points: %s" % ([keys[idx] for idx in basis_indices])
 
     basis        = hstack(world_points[:, i] for i in basis_indices)
-    image_points = hstack([matrix(list(image_points_in[k]) + [1.0]).T for k in keys)
+    image_points = hstack([matrix(list(image_points_in[k])] + [pixel_scale]).T for k in keys)
+    image_points = image_points / pixel_scale
+
+    print "Basis: %s" % basis
 
     # Choose coeffs such that basis * coeffs = P
     # where P is world_points relative to the first basis vector
@@ -111,7 +130,10 @@ if __name__ == "__main__":
                                                        centre_origin=True)
     print image_circles
     print "Solving"
-    K, R = solve(world_circles, image_circles, annotate_image=color_image)
+    K, R = solve(world_circles,
+                 image_circles,
+                 pixel_scale=3182.4,
+                 annotate_image=color_image)
     print K
     print R
 
