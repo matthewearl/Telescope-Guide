@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import numpy.linalg
 import scipy.linalg
 from numpy import *
