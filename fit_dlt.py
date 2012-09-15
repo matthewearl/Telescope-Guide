@@ -13,7 +13,7 @@ __all__ = ['solve']
 #
 # http://users.cecs.anu.edu.au/~hartley/Papers/CVPR99-tutorial/tut_4up.pdf
 #
-# Compute the 3x4 camera matrix using a direct linear translation
+# Compute the 3x4 camera matrix using a direct linear transformation
 
 def correspondence_matrix(world_point, image_point):
     world_point = list(world_point) + [1.]
