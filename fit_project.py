@@ -1,8 +1,11 @@
 #!/usr/bin/python
 
+import getopt, sys, cv
 import numpy.linalg
 import scipy.linalg
 from numpy import *
+import find_circles
+import util
 
 def left_inverse(A):
     return (A.T * A).I * A.T
@@ -32,11 +35,11 @@ def solve(world_points_in, image_points, pixel_scale, annotate_images=None):
     keys = [list(image_points.keys())]
     assert len(keys) >= 4
 
-    world_points = hstack([matrix(list(world_points_in[k])).T for k in keys)
+    world_points = hstack([matrix(list(world_points_in[k])).T] for k in keys)
             
     # Choose a "good" set of 4 basis indices
     basis_indices = [0]
-    basis_indices += [argmax([numpy.linalg.norm(world_points[:, i]) for i in enumerate(keys)]]
+    basis_indices += [argmax([numpy.linalg.norm(world_points[:, i]) for i in enumerate(keys)])]
     def dist_from_line(idx):
         v = world_points[:, idx] - world_points[:, basis_indices[0]]
         d = world_points[:, basis_indices[1]] - world_points[:, basis_indices[0]]
@@ -55,7 +58,7 @@ def solve(world_points_in, image_points, pixel_scale, annotate_images=None):
     print "Basis points: %s" % ([keys[idx] for idx in basis_indices])
 
     basis        = hstack(world_points[:, i] for i in basis_indices)
-    image_points = hstack([matrix(list(image_points_in[k])] + [pixel_scale]).T for k in keys)
+    image_points = hstack([matrix(list(image_points_in[k]) + [pixel_scale]).T] for k in keys)
     image_points = image_points / pixel_scale
 
     print "Basis: %s" % basis
