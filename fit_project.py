@@ -7,15 +7,6 @@ from numpy import *
 import find_circles
 import util
 
-def col_slice(M, cols):
-    return hstack([M[:, i:(i+1)] for i in cols])
-
-def left_inverse(A):
-    return (A.T * A).I * A.T
-
-def right_inverse(A):
-    return A.T * (A * A.T).I
-
 def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
     """
     Find a camera's orientation and pixel scale given a set of world
@@ -58,12 +49,13 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
         d = d / numpy.linalg.norm(d)
         return abs((d.T * v)[0, 0])
     basis_indices += [argmax([dist_from_plane(i) for i,k in enumerate(keys)])]
+    basis_indices = map(keys.index, ['12a', '11a', '9a', '12b'])
 
     basis        = hstack(world_points[:, i] for i in basis_indices)
     image_points = hstack([matrix(list(image_points_in[k]) + [pixel_scale]).T for k in keys])
     image_points = image_points / pixel_scale
 
-    print [keys[i] for i in basis_indices]
+    print "Basis = %s" % [keys[i] for i in basis_indices]
 
     # Choose coeffs such that basis * coeffs = P
     # where P is world_points relative to the first basis vector
@@ -80,7 +72,7 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
 
         # Set d,e,f st:
         #   d * (b[1] - b[0]) + e * (b[2] - b[0]) + f * (b[3] - b[0]) =
-        #       world_points[idx]]
+        #       world_points[idx] - b[0]
         d, e, f = [coeffs[i, key_idx] for i in [0,1,2]]
 
         out[:, basis_indices[0]:][:,:1] =  (1 - d - e - f) * image_points[:,basis_indices[0]:][:,:1]
@@ -98,27 +90,47 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
     # eigenvalue.
     eig_vals, eig_vecs = numpy.linalg.eig(M.T * M)
     Z = (eig_vecs.T[eig_vals.argmin()]).T
+    print "Eig vecs: %s" % repr(eig_vecs)
+    print "Eig vals: %s" % repr(eig_vals)
+    print "Min idx: %d" % eig_vals.argmin()
+    print "Z = %s" % repr(Z)
+
+    print "M * Z = %s" % repr(M*Z)
 
     # Project points. The scale of the projected points will be wrong, and the
     # orientation is still unknown.
     camera_points = matrix(array(image_points) * array(vstack([Z.T] * 3)))
 
-    # Compute the rotation (and scale) from world space to camera space.
-    P = (camera_points - hstack([camera_points[:,0:1]] * camera_points.shape[1])) * \
-        right_inverse(world_points - hstack([world_points[:,0:1]] * world_points.shape[1]))
+    print "Coeffs: %s" % repr(coeffs)
+    print "Projected basis: %s" % repr(util.col_slice(camera_points, basis_indices + range(len(keys))))
+    print "World basis: %s" % repr(util.col_slice(world_points, basis_indices + range(len(keys))))
+
+    if annotate_image:
+        image_points_mat = matrix([[r[0,0]/r[0,2], r[0,1]/r[0,2]] for r in camera_points.T]).T
+        image_points_mat *= pixel_scale
+        util.draw_points(annotate_image,
+                dict(zip(["%f" % Z[i,0] for i in xrange(Z.shape[0])], list(image_points_mat.T))))
+
+    # Compute the rotation and scale from world space to camera space.
+    def sub_first(M):
+        return M - hstack([M[:, basis_indices[0]:][:,:1]] * M.shape[1])
+    P = sub_first(camera_points) * util.right_inverse(sub_first(world_points))
 
     K, R = map(matrix, scipy.linalg.rq(P))
     for i in xrange(3):
         if K[i,i] < 0:
             R[i:(i+1), :] = -R[i:(i+1), :]
             K[:, i:(i+1)] = -K[:, i:(i+1)]
+    print "P = %s" % repr(P)
+    print "K = %s" % repr(K)
+    print "R = %s" % repr(R)
 
     scale = 3.0 / sum(K[i,i] for i in xrange(3))
     t = scale * camera_points[:, basis_indices[0]:][:, :1] - R * world_points[:, basis_indices[0]:][:, :1]
     P = hstack((R, t))
 
     # Annotate the image, if we've been asked to do so.
-    if annotate_image:
+    if False and annotate_image:
         all_keys = list(world_points_in.keys())
         world_points_mat = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in all_keys])
         image_points_mat = P * world_points_mat

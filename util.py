@@ -3,6 +3,12 @@ import math
 
 __all__ = ['draw_points', 'get_circle_pattern']
 
+def left_inverse(A):
+    return (A.T * A).I * A.T
+
+def right_inverse(A):
+    return A.T * (A * A.T).I
+
 def draw_points(image, points):
     """
     Draw a set of points on an image.
@@ -24,4 +30,7 @@ def get_circle_pattern(roll_radius=None):
         out = dict((key, (roll_radius * math.sin(x/roll_radius), y, -roll_radius * math.cos(x/roll_radius))) for (key, (x, y, z)) in out.iteritems())
 
     return out
+
+def col_slice(M, cols):
+    return hstack([M[:, i:(i+1)] for i in cols])
 
