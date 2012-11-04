@@ -35,7 +35,7 @@ def get_circle_pattern(roll_radius=None):
     return out
 
 def col_slice(M, cols):
-    return hstack([M[:, i:(i+1)] for i in cols])
+    return numpy.hstack([M[:, i:(i+1)] for i in cols])
 
 def orientation_from_correspondences(points1, points2):
     """
