@@ -193,8 +193,19 @@ def solve(world_points_in, image_points_in, pixel_scale, annotate_image=None):
         e = calc_reprojection_error(R, offs, world_points, image_points)
         print "Reprojection error = %f" % e
         errs.append(e)
+
+    R, offs = outs[array(errs).argmin()]
+
+    if annotate_image:
+        P = hstack([R, offs])
+        all_keys = list(world_points_in.keys())
+        world_points_mat = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in all_keys])
+        image_points_mat = P * world_points_mat
+        image_points_mat = matrix([[r[0,0]/r[0,2], r[0,1]/r[0,2]] for r in image_points_mat.T]).T
+        util.draw_points(annotate_image,
+                         dict(zip(all_keys, list(image_points_mat.T))))
     
-    return outs[array(errs).argmin()]
+    return R, offs
 
 if __name__ == "__main__":
     world_circles = util.get_circle_pattern(roll_radius=71.)
