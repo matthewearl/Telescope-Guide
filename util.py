@@ -1,5 +1,8 @@
+import operator
 import cv
 import math
+import numpy
+import scipy.linalg
 
 __all__ = ['draw_points', 'get_circle_pattern']
 
@@ -33,4 +36,55 @@ def get_circle_pattern(roll_radius=None):
 
 def col_slice(M, cols):
     return hstack([M[:, i:(i+1)] for i in cols])
+
+def orientation_from_correspondences(points1, points2):
+    """
+    Find a rotation R and offset T such that:
+
+    sum ||R*p1,i + T 0 p2,i||^2
+
+    is minimized.
+    """
+    assert points1.shape[1] == points2.shape[1]
+
+    points1 = numpy.matrix(points1.T)
+    points2 = numpy.matrix(points2.T)
+
+    def centroid(points):
+        return reduce(operator.add, points) / float(points.shape[0])
+
+    def sub_all(points, r):
+        return numpy.vstack(row - r for row in points)
+
+    c1 = centroid(points1)
+    c2 = centroid(points2)
+
+    points1 = sub_all(points1, c1)
+    points2 = sub_all(points2, c2)
+
+    H = reduce(operator.add, (points1[i,:].T * points2[i,:] for i in xrange(points1.shape[0])))
+    U, S, Vt = numpy.linalg.svd(H)
+    R = Vt.T * U.T
+
+    print R * points1.T
+    print points2.T
+
+    return R, (c2.T - R * c1.T)
+
+def test_orientation_from_correspondences(num_points=5):
+    R = numpy.matrix(scipy.linalg.qr(numpy.random.random((3,3)))[0])
+    T = numpy.matrix(numpy.random.random((3,1))) * 20.0
+
+    points1 = numpy.matrix(numpy.random.random((3, num_points))) * 10.0
+
+    points2 = R * points1
+    points2 = numpy.vstack(col + T.T for col in points2.T).T
+
+    R_recovered, T_recovered = orientation_from_correspondences(points1, points2)
+
+    print "R: %s" % R
+    print "T: %s" % T
+    print "R recovered: %s" % R_recovered
+    print "T recovered: %s" % T_recovered
+
 

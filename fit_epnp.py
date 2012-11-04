@@ -5,6 +5,9 @@ from numpy.linalg import norm
 from numpy import *
 import find_circles
 
+def sub_all(M, c):
+    return vstack(col - c.T for col in control_points.T).T
+
 def make_coeff_matrix(world_points, ctrl_indices):
     """
     Return a matrix C such that:
@@ -19,8 +22,6 @@ def make_coeff_matrix(world_points, ctrl_indices):
     #    w = (1 - r - s - t)*c[0] + r*c[1] + s*c[2] + t*c[3]
     control_points = util.col_slice(world_points, ctrl_indices)
 
-    def sub_all(M, c):
-        return hstack(col - c.T for col in control_points.T).T
     control_points = sub_all(control_points[:, 1:], control_points[:, 0:1])
     world_points = sub_all(world_points, control_points[:, 0:1])
     C = world_points.T * util.right_inverse(control_points):
@@ -51,9 +52,14 @@ def make_M(image_points, C):
         return matrix([[C[i,j], 0.0, -C[i, j] * image_points[0, i]],
                        [0.0, C[i,j], -C[i, j] * image_points[1, i]]])
     def make_row(i):
-        hstack([make_single(i, j) for j in xrange(4)])
+        return hstack([make_single(i, j) for j in xrange(4)])
 
     return vstack([make_row(i) for i in xrange(image_points.shape[1])])
+
+def calc_reprojection_error(R, offs, world_points, image_points):
+    reprojected = R * world_points + hstack([offs] * world_points.shape[1])
+    err = (reprojected - image_points).flatten()
+    return (err * err.T)[0, 0]
 
 def calc_beta_case_1(V, ctrl_points):
     num = sum(norm(V[(3*i):(3*i+3),:] - V[(3*j):(3*j+3),:]) * norm(ctrl_points[:,i] - ctrl_points[:,j]) for i in xrange(4) for j in xrange(4))
@@ -83,7 +89,51 @@ def calc_beta_case_2(V, ctrl_points):
                     v[(3*i):(3*i+3),1:2] - v[(3*j):(3*j+3), 1:2]])
         return coeff_sqr_sum(M)
 
-    return vstack([calc_row(i, j) for i in xrange(4) for j in xrange(i+1, 4)])
+    pair_indices = [(i, j) for i in xrange(4) for j in xrange(i+1, 4)]
+
+    L = vstack([calc_row(i, j) for i, j in pair_indices])
+    rho = matrix([[norm(ctrl_points[i] - ctrl_points[j])**2 for i, j in pair_indices]]).T
+    beta = left_inverse(L) * rho
+    
+    return matrix([math.sqrt(beta[0,0]), math.sqrt(beta[2,0])])
+
+def calc_beta_case_3(V, ctrl_points):
+    def coeff_sqr(a):
+        """
+        Return c st:
+            c * [b1^2, b1*b2, b1*b3, b2^2, b2*b3, b3^2].T 
+                   i = ( a * [b1, b2, b3].T )^2
+        """
+        return matrix([[a[0,0]**2,            # b1^2
+                       2. * a[0,0] * a[0,1],  # b1 * b2
+                       2. * a[0,0] * a[0,2],  # b1 * b3
+                       a[0,1]**2,             # b2^2
+                       2. * a[0,1] * a[0,2],  # b2 * b3
+                       a[0,2]**2]])           # b^3
+
+    def coeff_sqr_sum(M):
+        return sum(coeff_sqr(r) for r in M)
+
+    def calc_row(i, j):
+        """
+        Calculate a row r such that r * [b1^2, b1*b2, b2^2].T ==
+        || ctrl_points[i] - ctrl_points[j] ||^2
+        """
+
+        # Calc T such that || T * [b1, b2, b3].T ||^2 = 
+        #   || ctrl_points[i] - ctrl_points[j] ||^2
+        T = hstack([v[(3*i):(3*i+3),0:1] - v[(3*j):(3*j+3), 0:1],
+                    v[(3*i):(3*i+3),1:2] - v[(3*j):(3*j+3), 1:2],
+                    v[(3*i):(3*i+3),2:3] - v[(3*j):(3*j+3), 2:3]])
+        return coeff_sqr_sum(M)
+
+    pair_indices = [(i, j) for i in xrange(4) for j in xrange(i+1, 4)]
+
+    L = vstack([calc_row(i, j) for i, j in pair_indices])
+    rho = matrix([[norm(ctrl_points[i] - ctrl_points[j])**2 for i, j in pair_indices]]).T
+    beta = L.I * rho
+    
+    return matrix([math.sqrt(beta[0,0]), math.sqrt(beta[3,0]), math.sqrt(beta[5,0])])
 
 def solve(world_points, image_points, pixel_scale, annotate_image=None):
     """
@@ -111,12 +161,22 @@ def solve(world_points, image_points, pixel_scale, annotate_image=None):
     M = make_M(image_points, C)
 
     eig_vals, eig_vecs = numpy.linalg.eig(M.T * M)
-    V = eig_vecs.T[eigvals.argsort()]
+    V = eig_vecs.T[eigvals.argsort()].T
 
-    b1 = calc_beta_case_1(V[0:1, :])
-    b2 = calc_beta_case_2(V[0:2, :])
-    b3 = calc_beta_case_3(V[0:3, :])
+    b1 = calc_beta_case_1(V[:, :1])
+    b2 = calc_beta_case_2(V[:, :2])
+    b3 = calc_beta_case_3(V[:, :3])
    
+    for b in [b1, b2, b3]:
+        x = V[:, b.shape[1]] * b.T
+        x = x.reshape((4, 3))
+
+        R, offs = util.orientation_from_correspondences(
+                util.col_slice(world_points, control_indices),
+                x.T)
+
+        e = calc_reprojection_error(R, offs, world_points, image_points)
+        print "Reprojection error = %f" % e
 
 if __name__ == "__main__":
     world_circles = util.get_circle_pattern(roll_radius=71.)
