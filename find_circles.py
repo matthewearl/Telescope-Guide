@@ -4,6 +4,8 @@ import getopt
 import random
 import sys
 import cv
+import math
+import util
 
 OUTER_SEARCH_RADIUS = 20
 INNER_SEARCH_RADIUS = 5
@@ -68,6 +70,74 @@ def random_color():
                      random.uniform(0,255),
                      random.uniform(0,255))
 
+class Feature(object):
+    def draw(self, image):
+        raise NotImplementedError()
+
+    def get_centre(self):
+        raise NotImplementedError()
+
+class Ellipse(Feature):
+    def __init__(self, moments):
+        pass
+
+    def draw(self, image):
+       coords = tuple(map(int, ellipse[0:2]))
+       axes = tuple(map(int, ellipse[2:4]))
+       cv.Ellipse(annotate_image,
+                  coords,
+                  axes,
+                  ellipse[4],
+                  0,
+                  360.0,
+                  cv.CV_RGB(0, 255, 0))
+
+    def get_centre(self):
+        raise NotImplementedError()
+
+class Point(Feature):
+    def __init__(self, moments):
+        def moment_to_point(m):
+            return (m.m10 / m.m00, m.m01 / m.m00)
+        self.point = tuple(sum(x)/len(x) for x in zip(*[moment_to_point(m) for m in moments]))
+
+    def draw(self, image):
+        coords = tuple(map(int, self.point))
+        cv.Circle(image, coords, 5, cv.CV_RGB(0, 255, 0))
+        cv.Circle(image, coords, 7, cv.CV_RGB(255, 255, 255))
+
+    def get_centre(self):
+        return self.point
+
+def moments_to_ellipse(m):
+    """
+    Given a set of image moments for an ellipse, produce a 5-tuple:
+
+    (x, y, a, b, theta)
+
+    where x, y are the coordinates of the ellipse centre of mass, a, b are
+    the semi-major and minor axes, and theta is the angle of the semi-major
+    axis from the horizontal.
+    """
+    x, y = (m.m10 / m.m00, m.m01 / m.m00)
+    nu11 = 2550. * m.mu11 / m.m00**2
+    nu20 = 2550. * m.mu20 / m.m00**2
+    nu02 = 2550. * m.mu02 / m.m00**2
+    det = 4. * nu11**2 - (nu20 - nu02)**2
+    if det >= 0:
+        a = math.sqrt(0.5 * (nu20 + nu02) + math.sqrt(det))
+        det2 = 0.5 * (nu20 + nu02) - math.sqrt(det)
+        if det2 >= 0:
+            b = math.sqrt(det2)
+        else:
+            b = 0
+    else:
+        a, b = 0, 0
+    theta = 0.5 * math.atan2(2.*nu11, nu20 - nu02)
+    theta = 180.0 * theta / math.pi
+
+    return x, y, a, b, theta
+
 def find_concentric_circles(image_in):
     """
     Find concentric circles in an image. The concentric circles it finds are
@@ -89,8 +159,8 @@ def find_concentric_circles(image_in):
        color = random_color()
        moments = cv.Moments(contours)
        if moments.m00 > 0.0:
-           coords = (moments.m10 / moments.m00, moments.m01 / moments.m00)
-           spacialHash.add(contourNum, coords)
+           ellipse = moments_to_ellipse(moments)
+           spacialHash.add((contourNum, moments), ellipse[0:2])
            contourNum += 1
        contours = contours.h_next()
 
@@ -100,7 +170,7 @@ def find_concentric_circles(image_in):
         if len(cluster) == 4:
             c1 = cluster[0][1]
             if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
-                yield tuple(sum(x)/len(x) for x in zip(*[coords for obj, coords in cluster]))
+                yield Point(m for (o, m), c in cluster)
 
 def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     samples_per_bar = 10
@@ -156,7 +226,7 @@ def read_barcodes(image, circles, annotate_image=None):
     return out
 
 
-def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, centre_origin=False):
+def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, centre_origin=False, find_ellipses=False):
     """
     Find concentric circles in an image, which are identified with a barcode.
 
@@ -173,17 +243,15 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, 
     if thresh_file_name:
         cv.SaveImage(thresh_file_name, image)
 
-    circles = list(find_concentric_circles(image))
+    features = list(find_concentric_circles(image))
 
+    if annotate_image:
+        for i, feature in enumerate(features):
+            feature.draw(annotate_image)
+
+    pairs = read_barcodes(image, [f.get_centre() for f in features], annotate_image)
     if annotate_image:
         font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
-        for i, coords in enumerate(circles):
-           coords = tuple(map(int, coords))
-           cv.Circle(annotate_image, coords, 5, cv.CV_RGB(0, 255, 0))
-           cv.Circle(annotate_image, coords, 7, cv.CV_RGB(255, 255, 255))
-
-    pairs = read_barcodes(image, circles, annotate_image)
-    if annotate_image:
         for name, circle in pairs.iteritems():
             cv.PutText(annotate_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
 

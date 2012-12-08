@@ -87,4 +87,15 @@ def test_orientation_from_correspondences(num_points=5):
     print "R recovered: %s" % R_recovered
     print "T recovered: %s" % T_recovered
 
+def argmax(it):
+    max_idx = -1
 
+    for idx, val in enumerate(it):
+        if max_idx == -1 or val > max_val:
+            max_idx = idx
+            max_val = val
+
+    return max_idx
+
+def argmin(it):
+    return argmax(-x for x in it)
