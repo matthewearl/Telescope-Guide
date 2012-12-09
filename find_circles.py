@@ -91,10 +91,10 @@ class Ellipse(Feature):
         def variance_at_angle(angle):
             s, c = math.sin(2.0 * angle), math.cos(2.0 * angle)
             nu11, nu02, nu20 = (x / m.m00 for x in (m.mu11, m.mu02, m.mu20))
-            return 0.5 * (nu20 + nu02 + c * (nu20 - nu02) + s * (nu11))
+            return 0.5 * (nu20 + nu02 + c * (nu20 - nu02) + 2. * s * nu11)
 
         # Find the axis lengths up to a constant of proportionality.
-        self.axes = tuple(variance_at_angle(x) for x in (self.angle, self.angle + 0.5 * math.pi))
+        self.axes = tuple(variance_at_angle(x)**0.5 for x in (self.angle, self.angle + 0.5 * math.pi))
 
         # Scale the axes so that the area of the resulting ellipse matches the measured area.
         scale_factor = math.sqrt(m.m00 / (math.pi * self.axes[0] * self.axes[1]))
