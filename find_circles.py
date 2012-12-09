@@ -79,21 +79,40 @@ class Feature(object):
 
 class Ellipse(Feature):
     def __init__(self, moments):
-        pass
+        # Model the ellipse on the component with the largest area
+        moments = list(moments)
+        m = moments[util.argmax(m.m00 for m in moments)]
+
+        self.centre = (m.m10 / m.m00, m.m01 / m.m00)
+        self.angle = 0.5 * math.atan2(2. * m.mu11, m.mu20 - m.mu02)
+
+        self.areas = [m.m00] + list(m.m00 for m in moments)
+
+        def variance_at_angle(angle):
+            s, c = math.sin(2.0 * angle), math.cos(2.0 * angle)
+            nu11, nu02, nu20 = (x / m.m00 for x in (m.mu11, m.mu02, m.mu20))
+            return 0.5 * (nu20 + nu02 + c * (nu20 - nu02) + s * (nu11))
+
+        # Find the axis lengths up to a constant of proportionality.
+        self.axes = tuple(variance_at_angle(x) for x in (self.angle, self.angle + 0.5 * math.pi))
+
+        # Scale the axes so that the area of the resulting ellipse matches the measured area.
+        scale_factor = math.sqrt(m.m00 / (math.pi * self.axes[0] * self.axes[1]))
+        self.axes = tuple(scale_factor * x for x in self.axes)
 
     def draw(self, image):
-       coords = tuple(map(int, ellipse[0:2]))
-       axes = tuple(map(int, ellipse[2:4]))
-       cv.Ellipse(annotate_image,
+       coords = tuple(map(int, self.centre))
+       axes = tuple(map(int, self.axes))
+       cv.Ellipse(image,
                   coords,
                   axes,
-                  ellipse[4],
+                  self.angle * 180. / math.pi,
                   0,
                   360.0,
                   cv.CV_RGB(0, 255, 0))
 
     def get_centre(self):
-        raise NotImplementedError()
+        return self.centre
 
 class Point(Feature):
     def __init__(self, moments):
@@ -109,36 +128,7 @@ class Point(Feature):
     def get_centre(self):
         return self.point
 
-def moments_to_ellipse(m):
-    """
-    Given a set of image moments for an ellipse, produce a 5-tuple:
-
-    (x, y, a, b, theta)
-
-    where x, y are the coordinates of the ellipse centre of mass, a, b are
-    the semi-major and minor axes, and theta is the angle of the semi-major
-    axis from the horizontal.
-    """
-    x, y = (m.m10 / m.m00, m.m01 / m.m00)
-    nu11 = 2550. * m.mu11 / m.m00**2
-    nu20 = 2550. * m.mu20 / m.m00**2
-    nu02 = 2550. * m.mu02 / m.m00**2
-    det = 4. * nu11**2 - (nu20 - nu02)**2
-    if det >= 0:
-        a = math.sqrt(0.5 * (nu20 + nu02) + math.sqrt(det))
-        det2 = 0.5 * (nu20 + nu02) - math.sqrt(det)
-        if det2 >= 0:
-            b = math.sqrt(det2)
-        else:
-            b = 0
-    else:
-        a, b = 0, 0
-    theta = 0.5 * math.atan2(2.*nu11, nu20 - nu02)
-    theta = 180.0 * theta / math.pi
-
-    return x, y, a, b, theta
-
-def find_concentric_circles(image_in):
+def find_concentric_circles(image_in, find_ellipses=False):
     """
     Find concentric circles in an image. The concentric circles it finds are
     solid white circles surrounded by 3 rings: A black ring, a white ring, and
@@ -155,12 +145,14 @@ def find_concentric_circles(image_in):
     spacialHash = SpacialHash()
     contourNum = 1
 
+    featureFactory = Ellipse if find_ellipses else Point
+
     while contours:
        color = random_color()
        moments = cv.Moments(contours)
        if moments.m00 > 0.0:
-           ellipse = moments_to_ellipse(moments)
-           spacialHash.add((contourNum, moments), ellipse[0:2])
+           centre = (moments.m10 / moments.m00, moments.m01 / moments.m00)
+           spacialHash.add((contourNum, moments), centre)
            contourNum += 1
        contours = contours.h_next()
 
@@ -170,7 +162,7 @@ def find_concentric_circles(image_in):
         if len(cluster) == 4:
             c1 = cluster[0][1]
             if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
-                yield Point(m for (o, m), c in cluster)
+                yield featureFactory(m for (o, m), c in cluster)
 
 def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
     samples_per_bar = 10
@@ -243,7 +235,7 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, 
     if thresh_file_name:
         cv.SaveImage(thresh_file_name, image)
 
-    features = list(find_concentric_circles(image))
+    features = list(find_concentric_circles(image, find_ellipses=find_ellipses))
 
     if annotate_image:
         for i, feature in enumerate(features):
@@ -281,7 +273,7 @@ if __name__ == "__main__":
 
     image = cv.LoadImage(in_file_name, False)
     color_image = cv.LoadImage(in_file_name, True)
-    print find_labelled_circles(image, thresh_file_name, color_image)
+    print find_labelled_circles(image, thresh_file_name, color_image, find_ellipses=True)
 
     cv.SaveImage(out_file_name, color_image)
 
