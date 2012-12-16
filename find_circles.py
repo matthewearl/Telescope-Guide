@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import operator
 import getopt
 import random
 import sys
@@ -114,6 +115,12 @@ class Ellipse(Feature):
     def get_centre(self):
         return self.centre
 
+    def get_angle(self):
+        return self.angle
+
+    def get_axes(self):
+        return self.axes
+
 class Point(Feature):
     def __init__(self, moments):
         def moment_to_point(m):
@@ -164,59 +171,84 @@ def find_concentric_circles(image_in, find_ellipses=False):
             if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
                 yield featureFactory(m for (o, m), c in cluster)
 
-def read_bar_code(image, p1, p2, num_bars=20, color_image=None):
-    samples_per_bar = 10
+def read_circular_barcode(image,
+                          ellipse,
+                          annotate_image=None,
+                          num_bits=6):
+    num_bars = num_bits * 2 + 6
+    samples_per_bar=10
     num_samples = samples_per_bar * num_bars
-    xvals = [p1[0] + i * (p2[0] - p1[0])/num_samples for i in xrange(num_samples)]
-    yvals = [p1[1] + i * (p2[1] - p1[1])/num_samples for i in xrange(num_samples)]
 
-    samples = [image[y, x] < 128.0 for x, y in zip(xvals, yvals)]
+    centre = ellipse.get_centre()
+    axes = ellipse.get_axes()
+    angle = ellipse.get_angle()
 
-    bars = []
-    next_bar_middle = samples_per_bar // 2
-    for i in xrange(1,num_samples):
-        if i == next_bar_middle:
-            bars += [samples[i]]
-            next_bar_middle += samples_per_bar
-        if samples[i - 1] != samples[i]:
-            next_bar_middle = i + samples_per_bar // 2
+    def gen_sample_points():
+        for theta in [float(i) * 2. * math.pi / num_samples for i in xrange(num_samples)]:
+            x = math.cos(theta) * axes[0] * 5.5 / 4
+            y = math.sin(theta) * axes[1] * 5.5 / 4 
 
-    if len(bars) != num_bars:
+            x2 = x * math.cos(angle) + -y * math.sin(angle)
+            y2 = x * math.sin(angle) + y * math.cos(angle)
+            x, y = x2, y2
+
+            x = x + centre[0]
+            y = y + centre[1]
+
+            if annotate_image:
+                cv.Circle(annotate_image, (int(x), int(y)), 2, cv.CV_RGB(0, 255, 255))
+
+            yield x, y
+    
+    def find_pattern(samples, pattern, offsets=None):
+        if offsets is None:
+            offsets = xrange(num_samples)
+
+        offsets = [offset % len(samples) for offset in offsets]
+        pattern = reduce(operator.add, ([x] * samples_per_bar for x in pattern))
+
+        max_rating = 0
+        max_offset = 0
+        for offset in offsets:
+            rating = 0
+            for pat_idx in xrange(len(pattern)):
+                if samples[(offset + pat_idx) % len(samples)] == pattern[pat_idx]:
+                    rating += 1
+
+            if rating > max_rating:
+                max_rating = rating
+                max_offset = offset
+
+        return max_offset, float(max_rating) / len(pattern)
+
+    samples = [image[y, x] < 128.0 for x, y in gen_sample_points()]
+
+    offset, rating = find_pattern(samples, [False, True, True, True, True, False])
+
+    if rating < 0.9:
         return None
-    if bars[:6] != [False, True] * 3:
-        return None
-    if bars[-6:] != [False, False] + [True, False] * 2:
-        return None
-    if color_image:
-        for x, y in zip(xvals, yvals):
-            cv.Circle(color_image, (int(x), int(y)), 2, cv.CV_RGB(0, 255, 255))
-    return sum(v * 2**(7 - i) for i, v in enumerate(bars[6:-6]))
 
+    offset = offset + samples_per_bar * 6
 
-def read_barcodes(image, circles, annotate_image=None):
-    """
-    Given a set of coordinates of concentric circles, attempt to find pairs
-    with a 10-bit barcode between them.
+    code = []
+    for bit_idx in xrange(num_bits):
+        
+        zero_offset, zero_rating = find_pattern(samples, [False, True], xrange(offset - 3, offset + 3))
+        one_offset, one_rating = find_pattern(samples, [True, False], xrange(offset - 3, offset + 3))
 
-    image: Binary image that contains the concentric circles and barcodes.
-    circles: Coordinates of concentric circles in the image. The output of 
-             find_concentric_circles() can be used here.
+        if zero_rating > one_rating:
+            code += [False]
+            offset = zero_offset + 2 * samples_per_bar
+        else:
+            code += [True]
+            offset = one_offset + 2 * samples_per_bar
 
-    Return a dict from numbers (the barcode's value) to a pair of circle
-    coordinates (the coordinates of the CCs either side of the barcode).
-    """
-    valid_numbers = set(range(24))
-    out = {}
+    number = sum(1 << idx for idx, val in enumerate(reversed(code)) if val)
+    if annotate_image:
+        font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
+        cv.PutText(annotate_image, str(number), tuple(map(int, centre)), font, cv.CV_RGB(255, 0, 255))
 
-    for i1, c1 in enumerate(circles):
-        for i2, c2 in enumerate(circles):
-            bc = read_bar_code(image, c1, c2, color_image=annotate_image)
-            if bc != None and bc in valid_numbers:
-                out["%da" % bc] = c1
-                out["%db" % bc] = c2
-                    
-    return out
-
+    return number, centre
 
 def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, centre_origin=False, find_ellipses=False):
     """
@@ -241,17 +273,17 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, 
         for i, feature in enumerate(features):
             feature.draw(annotate_image)
 
-    pairs = read_barcodes(image, [f.get_centre() for f in features], annotate_image)
-    if annotate_image:
-        font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
-        for name, circle in pairs.iteritems():
-            cv.PutText(annotate_image, name, tuple(map(int, circle)), font, cv.CV_RGB(255, 0, 255))
+    out = {}
+    for f in features:
+        b = read_circular_barcode(image, f, annotate_image)
+        if b != None:
+            out[b[0]] = b[1]
 
     if centre_origin:
-        pairs = dict((key, (x - 0.5*image_in.width, 0.5*image_in.height - y))
-                        for key, (x, y) in pairs.iteritems())
+        out = dict((key, (x - 0.5*image_in.width, 0.5*image_in.height - y))
+                        for key, (x, y) in out.iteritems())
 
-    return pairs
+    return out
 
 
 if __name__ == "__main__":
