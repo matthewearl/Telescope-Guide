@@ -23,7 +23,7 @@ def draw_points(image, points):
     for name, point in points.iteritems():
         point = (int(point[0, 0] + image.width/2),
                  int(image.height/2 - point[0, 1]))
-        cv.PutText(image, name, point, font, cv.CV_RGB(255, 255, 0))
+        cv.PutText(image, str(name), point, font, cv.CV_RGB(255, 255, 0))
 
 
 def get_circle_pattern(roll_radius=None):
@@ -41,7 +41,7 @@ def orientation_from_correspondences(points1, points2):
     """
     Find a rotation R and offset T such that:
 
-    sum ||R*p1,i + T 0 p2,i||^2
+    sum ||R*p1,i + T - p2,i||^2
 
     is minimized.
     """
@@ -65,9 +65,6 @@ def orientation_from_correspondences(points1, points2):
     H = reduce(operator.add, (points1[i,:].T * points2[i,:] for i in xrange(points1.shape[0])))
     U, S, Vt = numpy.linalg.svd(H)
     R = Vt.T * U.T
-
-    print R * points1.T
-    print points2.T
 
     return R, (c2.T - R * c1.T)
 

@@ -1,6 +1,9 @@
+import getopt
 import find_circles
-import gen_targets
+import gen_target
 import cv
+import util
+from numpy import *
 
 __all__ = ['fitter_main', 'Fitter']
 
@@ -9,25 +12,29 @@ class Fitter(object):
               world_points,
               image_features,
               pixel_scale=None,
-              annotate_image=None)
+              annotate_image=None):
         raise NotImplementedError()
-   
+
+def camera_to_image(m, ps):
+    return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
+
 def project_points(R, T, pixel_scale, world_points, keys):
     world_points = hstack([matrix(list(world_points[k])).T for k in keys])
-    return R * world_points + hstack([T] * world_points.shape[1])
+    camera_points = R * world_points + hstack([T] * world_points.shape[1])
+
+    return camera_to_image(camera_points, pixel_scale)
 
 def calc_reprojection_error(R,
                             T,
                             pixel_scale,
                             world_points,
                             image_features):
-    assert set(world_point.keys()) >= set(image_features.keys())
+    assert set(world_points.keys()) >= set(image_features.keys())
     keys = sorted(list(image_features.keys()))
 
     reprojected = project_points(R, T, pixel_scale, world_points, keys)
 
-    image_points = hstack([matrix(list(image_points[k]) + [pixel_scale]).T for k in keys])
-    image_points = image_points / pixel_scale
+    image_points = hstack([matrix(list(image_features[k].get_centre())).T for k in keys])
 
     err = (reprojected - image_points).flatten()
 
@@ -43,9 +50,9 @@ def draw_reprojected(R, T, pixel_scale, world_points, annotate_image):
 
 
 def fitter_main(args, fitter):
-    world_points = gen_targets.get_targets():
+    world_points = gen_target.get_targets()
 
-    optlist, args = getopt.getopt(args[1:], 'i:o:')
+    optlist, _ = getopt.getopt(args[1:], 'i:o:')
 
     in_file_name = None
     out_file_name = None
@@ -65,8 +72,7 @@ def fitter_main(args, fitter):
     print "Finding labelled circles"
     image_features = find_circles.find_labelled_circles(image,
                                                         annotate_image=color_image,
-                                                        centre_origin=True)
-    print image_circles
+                                                        find_ellipses=True)
     print "Solving"
     R, T, pixel_scale = fitter.solve(world_points,
                                      image_features,
@@ -74,10 +80,10 @@ def fitter_main(args, fitter):
                                      annotate_image=color_image)
     print R, T, pixel_scale
 
-    err = calc_reprojection_error(R, T, pixel_scale, world_points, image_features, annotate_image=color_image)
+    err = calc_reprojection_error(R, T, pixel_scale, world_points, image_features)
     print "Reprojection error: %f" % err
 
-    draw_reprojected(R, T, pixel_scale, world_points, annotate_image)
+    draw_reprojected(R, T, pixel_scale, world_points, color_image)
 
     if out_file_name:
         cv.SaveImage(out_file_name, color_image)

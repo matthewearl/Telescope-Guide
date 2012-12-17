@@ -10,6 +10,7 @@ import util
 
 OUTER_SEARCH_RADIUS = 20
 INNER_SEARCH_RADIUS = 5
+MIN_CONTOUR_AREA = 20
 
 __all__ = ['find_concentric_circles', 'find_circles']
 
@@ -79,7 +80,9 @@ class Feature(object):
         raise NotImplementedError()
 
 class Ellipse(Feature):
-    def __init__(self, moments):
+    def __init__(self, moments, origin):
+        self.origin = origin
+
         # Model the ellipse on the component with the largest area
         moments = list(moments)
         m = moments[util.argmax(m.m00 for m in moments)]
@@ -112,8 +115,11 @@ class Ellipse(Feature):
                   360.0,
                   cv.CV_RGB(0, 255, 0))
 
-    def get_centre(self):
-        return self.centre
+    def get_centre(self, image_space=False):
+        if image_space:
+            return self.centre
+        else:
+            return (self.centre[0] - self.origin[0], self.origin[1] - self.centre[1])
 
     def get_angle(self):
         return self.angle
@@ -157,7 +163,7 @@ def find_concentric_circles(image_in, find_ellipses=False):
     while contours:
        color = random_color()
        moments = cv.Moments(contours)
-       if moments.m00 > 0.0:
+       if moments.m00 > MIN_CONTOUR_AREA:
            centre = (moments.m10 / moments.m00, moments.m01 / moments.m00)
            spacialHash.add((contourNum, moments), centre)
            contourNum += 1
@@ -169,7 +175,8 @@ def find_concentric_circles(image_in, find_ellipses=False):
         if len(cluster) == 4:
             c1 = cluster[0][1]
             if all(dist_sqr(c1, c2) < INNER_SEARCH_RADIUS**2 for obj, c2 in cluster[1:]):
-                yield featureFactory(m for (o, m), c in cluster)
+                yield featureFactory((m for (o, m), c in cluster),
+                                     origin=(0.5 * image_in.width, 0.5 * image_in.height))
 
 def read_circular_barcode(image,
                           ellipse,
@@ -179,7 +186,7 @@ def read_circular_barcode(image,
     samples_per_bar=10
     num_samples = samples_per_bar * num_bars
 
-    centre = ellipse.get_centre()
+    centre = ellipse.get_centre(image_space=True)
     axes = ellipse.get_axes()
     angle = ellipse.get_angle()
 
@@ -250,7 +257,7 @@ def read_circular_barcode(image,
 
     return number, centre
 
-def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, centre_origin=False, find_ellipses=False):
+def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, find_ellipses=False):
     """
     Find concentric circles in an image, which are identified with a barcode.
 
@@ -277,11 +284,7 @@ def find_labelled_circles(image_in, thresh_file_name=None, annotate_image=None, 
     for f in features:
         b = read_circular_barcode(image, f, annotate_image)
         if b != None:
-            out[b[0]] = b[1]
-
-    if centre_origin:
-        out = dict((key, (x - 0.5*image_in.width, 0.5*image_in.height - y))
-                        for key, (x, y) in out.iteritems())
+            out[b[0]] = f
 
     return out
 

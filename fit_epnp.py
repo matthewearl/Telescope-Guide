@@ -70,6 +70,7 @@ def make_M(image_points, C):
     return vstack([make_row(i) for i in xrange(image_points.shape[1])])
 
 def calc_reprojection_error(R, offs, world_points, image_points):
+    # FIXME: Divide through by Z?
     reprojected = R * world_points + hstack([offs] * world_points.shape[1])
     err = (reprojected - image_points).flatten()
     return (err * err.T)[0, 0]
