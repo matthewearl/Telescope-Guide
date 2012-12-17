@@ -47,7 +47,15 @@ def sub_jacobian_point_rotation_z(x, y, z):
 def sub_jacobian_point(x, y, z, pixel_scale):
     """
     Return the Jacobian for parameters translation in x, y and z, rotation in
-    x, y and z, and zoom.
+    x, y and z, and zoom. I.e.
+
+    | dsx/dtx dsx/dty dsx/dtz dsx/drx dsx/dry dsx/drz dsx/dps |
+    | dsy/dtx dsy/dty dsy/dtz dsy/drx dsy/dry dsy/drz dsy/dps |
+
+    Where:
+        s[xy] are the pixel positions after pixel scaling (but before barrel distortion).
+        [rt][xyz] are parameters for rotations/translations about the axes.
+        ps is the pixel scaling parameter.
     """
     fns = [sub_jacobian_point_translation_x,
            sub_jacobian_point_translation_y,
@@ -60,6 +68,63 @@ def sub_jacobian_point(x, y, z, pixel_scale):
     out = hstack([out, matrix([[x/z], [y/z]])])
 
     return out
+
+def calculate_barrel_distortion(bd, sx, sy):
+    """
+    Calculate distorted point (px, py) given undistorted point (sy,sy), and
+    distortion parameter bd.
+
+    Solve by inverting ru = rd * (1 + bd * rd**2) with Newton's method.
+    """
+
+    ru = math.sqrt(sx**2 + sy**2)
+
+    x = ru
+
+    print "Inverting ru = %f" % ru
+    for i in xrange(10):
+        x = x - (x * (1. + bd * x**2) - ru) / (1. + 3 * bd * x**2)
+        print "x=%f err = %f" % (x, (x * (1. + bd * x**2) - ru))
+    print "----"
+    rd = x
+
+    px = sx * rd / ru
+    py = sy * rd / ru
+
+    return px, py
+
+def make_barrel_distortion_jacobian(bd, sx, sy):
+    """
+    Return the jacobian for the barrel distortion function, parameterized by:
+        - bd: Amount of barrel distortion.
+        - sx: Pixel x-position after pixel scaling.
+        - sy: Pixel y-position after pixel scaling.
+
+    Barrel distortion shifts points radially outwards according to the following
+    function:
+
+    ru = rd * (1 + bd * rd**2)
+
+    Where ru/rd are the distorted distance from the image centre.
+
+    More specifically, this function returns:
+
+    | dpx/dsx dpx/dsy dpx/dbd |
+    | dpy/dsx dpy/dsy dpy/dbd |
+
+
+    Where px,py are the barrel distorted points, sx,sy are the unbarrel distorted
+    points, and bd is the parameter in the above barrel distortion equation.
+    """
+
+    px, py = calculate_barrel_distortion(bd, sx, sy)
+
+    return matrix([[1./(1. + 3. * bd * px**2 + bd * py**2,
+                    1./(bd * px * (px**2 + 2. * py)),
+                    ],
+                   [1./(bd * py * (py**2 + 2. * px)),
+                    1./(1. + 3. * bd * py**2 + bd * px**2),
+                    ]])
 
 def make_single_jacobian(points, pixel_scale):
     points = array(points)
