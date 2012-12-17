@@ -76,7 +76,7 @@ def fitter_main(args, fitter):
     print "Solving"
     R, T, pixel_scale = fitter.solve(world_points,
                                      image_features,
-                                     pixel_scale=3182.4,
+                                     pixel_scale=2986.3,
                                      annotate_image=color_image)
     print R, T, pixel_scale
 

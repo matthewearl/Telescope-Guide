@@ -2,6 +2,7 @@
 
 import getopt, sys, math, cv
 
+import gen_target
 import numpy
 from numpy import *
 import find_circles
@@ -152,7 +153,9 @@ def solve(world_points_in, image_points, annotate_images=None,
     assert all(set(world_points_in.keys()) >= set(p.keys()) for p in image_points)
     keys = [list(p.keys()) for p in image_points]
     world_points = [hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in sub_keys]) for sub_keys in keys]
-    image_points = hstack([hstack([matrix(p[k]).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
+    image_points = hstack([hstack([matrix(p[k].get_centre()).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
+
+    print image_points
 
     if initial_matrices:
         current_mat = [matrix_invert(m) for m in initial_matrices]
@@ -208,7 +211,7 @@ def solve(world_points_in, image_points, annotate_images=None,
     
 
 if __name__ == "__main__":
-    world_circles = util.get_circle_pattern(roll_radius=71.)
+    world_circles = gen_target.get_targets()
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
 
@@ -230,11 +233,11 @@ if __name__ == "__main__":
     print "Finding labelled circles"
     image_circles = [find_circles.find_labelled_circles(image,
                                                         annotate_image=color_image,
-                                                        centre_origin=True)
+                                                        find_ellipses=True)
                         for image, color_image in zip(images, color_images)]
     print image_circles
     print "Solving"
-    Ms, ps = solve(world_circles, image_circles, annotate_images=color_images)
+    Ms, ps = solve(world_circles, image_circles, annotate_images=color_images, change_ps=False)
 
     print "Solving for zoom"
     print solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, change_ps=True)
