@@ -44,31 +44,6 @@ def sub_jacobian_point_rotation_y(x, y, z):
 def sub_jacobian_point_rotation_z(x, y, z):
     return matrix([[-y/z], [x/z]])
 
-def sub_jacobian_point(x, y, z, pixel_scale):
-    """
-    Return the Jacobian for parameters translation in x, y and z, rotation in
-    x, y and z, and zoom. I.e.
-
-    | dsx/dtx dsx/dty dsx/dtz dsx/drx dsx/dry dsx/drz dsx/dps |
-    | dsy/dtx dsy/dty dsy/dtz dsy/drx dsy/dry dsy/drz dsy/dps |
-
-    Where:
-        s[xy] are the pixel positions after pixel scaling (but before barrel distortion).
-        [rt][xyz] are parameters for rotations/translations about the axes.
-        ps is the pixel scaling parameter.
-    """
-    fns = [sub_jacobian_point_translation_x,
-           sub_jacobian_point_translation_y,
-           sub_jacobian_point_translation_z,
-           sub_jacobian_point_rotation_x,
-           sub_jacobian_point_rotation_y,
-           sub_jacobian_point_rotation_z]
-
-    out = hstack([pixel_scale * fn(x, y, z) for fn in fns])
-    out = hstack([out, matrix([[x/z], [y/z]])])
-
-    return out
-
 def calculate_barrel_distortion(bd, sx, sy):
     """
     Calculate distorted point (px, py) given undistorted point (sy,sy), and
@@ -119,26 +94,78 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
 
     px, py = calculate_barrel_distortion(bd, sx, sy)
 
-    return matrix([[1./(1. + 3. * bd * px**2 + bd * py**2,
-                    1./(bd * px * (px**2 + 2. * py)),
-                    ],
-                   [1./(bd * py * (py**2 + 2. * px)),
-                    1./(1. + 3. * bd * py**2 + bd * px**2),
-                    ]])
 
-def make_single_jacobian(points, pixel_scale):
+    dsx_by_dpx = (1. + 3. * bd * px**2 + bd * py**2)
+    dsy_by_dpx = (bd * py * (py**2 + 2. * px))
+    dsx_by_dpy = (bd * px * (px**2 + 2. * py))
+    dsy_by_dpy = (1. + 3. * bd * py**2 + bd * px**2)
+
+    dsx_by_dbd = px * (px**2 + py**2)
+    dsy_by_dbd = py * (px**2 + py**2)
+
+    return matrix([[ 1./dsx_by_dpx, 1./dsy_by_dpx, dsx_by_dbd/dsx_by_dpx + dsy_by_dbd/dsy_by_dpx ],
+                   [ 1./dsx_by_dpy, 1./dsy_by_dpy, dsx_by_dbd/dsx_by_dpy + dsy_by_dbd/dsy_by_dpy ]])
+
+def sub_jacobian_point(x, y, z, pixel_scale, bd):
+    """
+    Return the Jacobian for parameters translation in x, y and z, rotation in
+    x, y and z, and zoom. I.e.
+
+    | dpx/dtx dpx/dty dpx/dtz dpx/drx dpx/dry dpx/drz dpx/dps dpx/dbd |
+    | dpy/dtx dpy/dty dpy/dtz dpy/drx dpy/dry dpy/drz dpy/dps dpy/dbd |
+
+    Where:
+        p[xy] are the pixel positions after pixel scaling and barrel distortion.
+        [rt][xyz] are parameters for rotations/translations about the axes.
+        ps is the pixel scaling parameter.
+        bd is the barrel distortion parameter.
+    """
+    fns = [sub_jacobian_point_translation_x,
+           sub_jacobian_point_translation_y,
+           sub_jacobian_point_translation_z,
+           sub_jacobian_point_rotation_x,
+           sub_jacobian_point_rotation_y,
+           sub_jacobian_point_rotation_z]
+
+    # First work out the jacobian without barrel distortion
+    out = hstack([pixel_scale * fn(x, y, z) for fn in fns])
+    out = hstack([out, matrix([[x/z], [y/z]])])
+
+    # Add on an extra row for dbd/d{param}
+    out = vstack([out, matrix([[0.] * out.shape[1]])])
+
+    # Compose with the barrel-distortion jacobian
+    sx = pixel_scale * x / z
+    sy = pixel_scale * y / z
+    out = make_barrel_distortion_jacobian(bd, sx, sy) * out
+
+    return out
+
+def make_single_jacobian(points, pixel_scale, bd):
     points = array(points)
-    return vstack(sub_jacobian_point(*p, pixel_scale=pixel_scale) for p in points)
+    return vstack(sub_jacobian_point(*p, pixel_scale=pixel_scale, bd=bd) for p in points)
 
-def make_jacobian(points, keys, pixel_scale):
+def make_jacobian(points, keys, pixel_scale, bd):
+    """
+    Make the full jacobian matrix. The 6*len(keys) + 2 columns correspond with:
+      - 6 parameters for each image:
+        - Camera x, y, z translation
+        - Camera x, y, z rotation
+      - Pixel scale
+      - Barrel distortion
+
+    The 2 * len(points) rows correspond with the image coordinates of each point
+    in each image.
+    """
+
     Js = []
     idx = 0
     keys_idx = 0
     while idx < len(points) and keys_idx < len(keys):
-        J = make_single_jacobian(points[idx:(idx + len(keys[keys_idx])), :], pixel_scale)
-        M = zeros((J.shape[0], 6*len(keys) + 1))
+        J = make_single_jacobian(points[idx:(idx + len(keys[keys_idx])), :], pixel_scale, bd)
+        M = zeros((J.shape[0], 6*len(keys) + 2))
         M[:, (6*keys_idx):(6*keys_idx + 6)] = J[:, :6]
-        M[:, -1:] = J[:, 6:]
+        M[:, -2:] = J[:, 6:]
         Js.append(M)
 
         idx += len(keys[keys_idx])
@@ -194,7 +221,7 @@ def matrix_normalize(m):
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
 def solve(world_points_in, image_points, annotate_images=None,
-          initial_matrices=None, change_ps=False):
+          initial_matrices=None, change_ps=False, change_bd=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -209,6 +236,8 @@ def solve(world_points_in, image_points, annotate_images=None,
                      points.
     initial_matrices: Optional set of initial rotation matrices.
     change_ps: If True, allow the pixel scale (zoom) to be varied. Algorithm
+               can be unstable if initial guess is inaccurate.
+    change_bd: If True, allow the barrel distortion to be varied. Algorithm
                can be unstable if initial guess is inaccurate.
 
     Return: 4x4 matrix representing the camera's orientation, and a pixel
@@ -227,17 +256,23 @@ def solve(world_points_in, image_points, annotate_images=None,
     else:
         current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
     current_ps = 2500.
+    current_bd = 0.0
 
-    def camera_to_image(m, ps):
-        return ps * matrix([[c[0, 0] / c[0, 2], c[0, 1] / c[0, 2]] for c in m.T]).T
+    def camera_to_image(m, ps, bd):
+        def map_point(c):
+            px, py = calculate_barrel_distortion(bd, ps * c[0, 0] / c[0, 2], ps * c[0, 1] / c[0, 2])
+            return [px, py]
+        return matrix(map_point(c) for c in m.T]).T
 
     last_err_float = None
     while True:
         # Calculate the Jacobian
         camera_points = hstack([m * p for m, p in zip(current_mat, world_points)])
-        err = image_points - camera_to_image(camera_points, current_ps)
-        J = make_jacobian(camera_points.T[:, :3], keys, current_ps)
+        err = image_points - camera_to_image(camera_points, current_ps, current_bd)
+        J = make_jacobian(camera_points.T[:, :3], keys, current_ps, current_bd)
         if not change_ps:
+            J = hstack(J[:, :-2], J[:, -1:])
+        if not change_bd:
             J = J[:, :-1]
 
         # Invert the Jacobian and calculate the change in parameters.
@@ -264,15 +299,18 @@ def solve(world_points_in, image_points, annotate_images=None,
         if change_ps:
             current_ps += param_delta[6 * len(keys), 0]
 
+        if change_bd:
+            current_bd += param_delta[6 * len(keys) + 1, 0]
+
     if annotate_images:
         all_keys = list(world_points_in.keys())
         all_world_points = hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in all_keys])
         for i, annotate_image in enumerate(annotate_images):
             all_camera_points = current_mat[i] * all_world_points
             util.draw_points(annotate_image,
-                             dict(zip(all_keys, camera_to_image(all_camera_points, current_ps).T)))
+                             dict(zip(all_keys, camera_to_image(all_camera_points, current_ps, current_bd).T)))
     
-    return [matrix_invert(M) for M in current_mat], current_ps
+    return [matrix_invert(M) for M in current_mat], current_ps, current_bd
     
 
 if __name__ == "__main__":
