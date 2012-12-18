@@ -56,12 +56,11 @@ def calculate_barrel_distortion(bd, sx, sy):
 
     x = ru
 
-    print "Inverting ru = %f" % ru
-    for i in xrange(10):
+    for i in xrange(20):
         x = x - (x * (1. + bd * x**2) - ru) / (1. + 3 * bd * x**2)
-        print "x=%f err = %f" % (x, (x * (1. + bd * x**2) - ru))
-    print "----"
     rd = x
+
+    print "xxx %f %f" % (rd * (1. + bd * rd**2), ru)
 
     px = sx * rd / ru
     py = sy * rd / ru
@@ -87,24 +86,56 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
     | dpx/dsx dpx/dsy dpx/dbd |
     | dpy/dsx dpy/dsy dpy/dbd |
 
-
     Where px,py are the barrel distorted points, sx,sy are the unbarrel distorted
     points, and bd is the parameter in the above barrel distortion equation.
     """
 
     px, py = calculate_barrel_distortion(bd, sx, sy)
 
+    # Calculate the following derivatives immediately from the barrel distortion
+    # equations in terms of sx, sy, px and py:
+    #  sx = px * (1 + bd * (px**2 + py**2))
+    #  sy = py * (1 + bd * (px**2 + py**2))
 
     dsx_by_dpx = (1. + 3. * bd * px**2 + bd * py**2)
     dsy_by_dpx = (bd * py * (py**2 + 2. * px))
     dsx_by_dpy = (bd * px * (px**2 + 2. * py))
     dsy_by_dpy = (1. + 3. * bd * py**2 + bd * px**2)
-
     dsx_by_dbd = px * (px**2 + py**2)
     dsy_by_dbd = py * (px**2 + py**2)
 
-    return matrix([[ 1./dsx_by_dpx, 1./dsy_by_dpx, dsx_by_dbd/dsx_by_dpx + dsy_by_dbd/dsy_by_dpx ],
-                   [ 1./dsx_by_dpy, 1./dsy_by_dpy, dsx_by_dbd/dsx_by_dpy + dsy_by_dbd/dsy_by_dpy ]])
+    # From the chain rule obtain:
+    #
+    #  1 = dpx/dpx = dpx/dsx * dsx/dpx + dpx/dsy * dsy/dpx
+    #  0 = dpx/dpy = dpx/dsx * dsx/dpy + dpx/dsy * dsy/dpy
+    #  0 = dpy/dpx = dpy/dsx * dsx/dpx + dpy/dsy * dsy/dpx
+    #  1 = dpy/dpy = dpy/dsx * dsx/dpy + dpy/dsy * dsy/dpy
+    #
+    #  Giving:
+    #   [ 1 ]   [ dsx/dpx  dsy/dpx        0        0 ] [ dpx/dsx ]
+    #   [ 0 ] = [ dsx/dpy  dsy/dpy        0        0 ] [ dpx/dsy ]
+    #   [ 0 ]   [       0        0  dsx/dpx  dsy/dpx ] [ dpy/dsx ]
+    #   [ 1 ]   [       0        0  dsx/dpy  dsy/dpy ] [ dpy/dsy ]
+
+    M = matrix([[ dsx_by_dpx, dsy_by_dpx,        0.0,        0.0],
+                [ dsx_by_dpy, dsy_by_dpy,        0.0,        0.0],
+                [        0.0,        0.0, dsx_by_dpx, dsy_by_dpx],
+                [        0.0,        0.0, dsx_by_dpy, dsy_by_dpy]])
+
+    (dpx_by_dsx,
+     dpx_by_dsy,
+     dpy_by_dsx,
+     dpy_by_dsy) = array(matrix([[1., 0., 0., 1.]]).T * M.I).T[0]
+
+    # Obtain dpx/dbd and dpy/dbd directly using the chain rule:
+    #   dpx/dbd = dpx/dsx * dsx/dbd + dpx/dsy * dsy/dbd
+    #   dpy/dbd = dpy/dsx * dsx/dbd + dpy/dsy * dsy/dbd
+
+    dpx_by_dbd = dpx_by_dsx * dsx_by_dbd + dpx_by_dsy * dsy_by_dbd
+    dpy_by_dbd = dpy_by_dsx * dsx_by_dbd + dpy_by_dsy * dsy_by_dbd
+
+    return matrix([[dpx_by_dsx, dpx_by_dsy, dpx_by_dbd],
+                   [dpy_by_dsx, dpy_by_dsy, dpy_by_dbd]])
 
 def sub_jacobian_point(x, y, z, pixel_scale, bd):
     """
@@ -262,7 +293,7 @@ def solve(world_points_in, image_points, annotate_images=None,
         def map_point(c):
             px, py = calculate_barrel_distortion(bd, ps * c[0, 0] / c[0, 2], ps * c[0, 1] / c[0, 2])
             return [px, py]
-        return matrix(map_point(c) for c in m.T]).T
+        return matrix([map_point(c) for c in m.T]).T
 
     last_err_float = None
     while True:
@@ -312,8 +343,52 @@ def solve(world_points_in, image_points, annotate_images=None,
     
     return [matrix_invert(M) for M in current_mat], current_ps, current_bd
     
+import random
+
+def test_calculate_barrel_distortion():
+    sx = 2000 * random.random() - 1000.0
+    sy = 2000 * random.random() - 1000.0
+    bd = 2. * random.random()
+
+    px, py = calculate_barrel_distortion(bd, sx, sy)
+
+    ru = math.sqrt(sx**2 + sy**2)
+    rd = math.sqrt(px**2 + py**2)
+
+    print "%f %f" % (ru, rd * (1. + bd * rd**2))
+
+
+def test_barrel_distortion_jacobian():
+    sx = 2000 * random.random() - 1000.0
+    sy = 2000 * random.random() - 1000.0
+    bd = .0000001 * random.random()
+
+    dsx = 0.02 * random.random() - 0.01
+    dsy = 0.02 * random.random() - 0.01
+    dbd = 0.02 * random.random() - 0.01
+
+    #dsy = 0.
+    dsx = 0.
+    dbd = 0.
+
+    bd = 0.
+
+    px1, py1 = calculate_barrel_distortion(bd, sx, sy)
+    px2, py2 = calculate_barrel_distortion(bd + dbd, sx + dsx, sy + dsy)
+
+    print "---"
+    print matrix([[px2 - px1, py2 - py1]])
+    
+    J = make_barrel_distortion_jacobian(bd, sx, sy)
+    print (J * matrix([[dsx, dsy, dbd]]).T).T
+
 
 if __name__ == "__main__":
+    for i in range(10):
+        test_barrel_distortion_jacobian()
+
+    sys.exit(0)
+
     world_circles = gen_target.get_targets()
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
