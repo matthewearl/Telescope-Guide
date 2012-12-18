@@ -111,31 +111,25 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
     #  0 = dpy/dpx = dpy/dsx * dsx/dpx + dpy/dsy * dsy/dpx
     #  1 = dpy/dpy = dpy/dsx * dsx/dpy + dpy/dsy * dsy/dpy
     #
-    #  Giving:
-    #   [ 1 ]   [ dsx/dpx  dsy/dpx        0        0 ] [ dpx/dsx ]
-    #   [ 0 ] = [ dsx/dpy  dsy/dpy        0        0 ] [ dpx/dsy ]
-    #   [ 0 ]   [       0        0  dsx/dpx  dsy/dpx ] [ dpy/dsx ]
-    #   [ 1 ]   [       0        0  dsx/dpy  dsy/dpy ] [ dpy/dsy ]
+    #  Equivalently:
+    #
+    #   I = [ dpx/dsx dpx/dsy ] [ dsx/dpx dsx/dpy ]
+    #       [ dpy/dsx dpy/dsy ] [ dsy/dpx dsy/dpy ] 
+    #
+    #  (RHS is assigned to s_jacobian, LHS is assigned to p_jacobian)
 
-    M = matrix([[ dsx_by_dpx, dsy_by_dpx,        0.0,        0.0],
-                [ dsx_by_dpy, dsy_by_dpy,        0.0,        0.0],
-                [        0.0,        0.0, dsx_by_dpx, dsy_by_dpx],
-                [        0.0,        0.0, dsx_by_dpy, dsy_by_dpy]])
-
-    (dpx_by_dsx,
-     dpx_by_dsy,
-     dpy_by_dsx,
-     dpy_by_dsy) = array(matrix([[1., 0., 0., 1.]]).T * M.I).T[0]
+    s_jacobian = matrix([[dsx_by_dpx, dsx_by_dpy],
+                         [dsy_by_dpx, dsy_by_dpy]])
+    p_jacobian = s_jacobian.I
 
     # Obtain dpx/dbd and dpy/dbd directly using the chain rule:
     #   dpx/dbd = dpx/dsx * dsx/dbd + dpx/dsy * dsy/dbd
     #   dpy/dbd = dpy/dsx * dsx/dbd + dpy/dsy * dsy/dbd
+    #
+    # Equivalently: [dpx/dbd] = p_jacobian * [ dsx/dbd ]
+    #               [dpy/dbd]                [ dsy/dbd ]
 
-    dpx_by_dbd = dpx_by_dsx * dsx_by_dbd + dpx_by_dsy * dsy_by_dbd
-    dpy_by_dbd = dpy_by_dsx * dsx_by_dbd + dpy_by_dsy * dsy_by_dbd
-
-    return matrix([[dpx_by_dsx, dpx_by_dsy, dpx_by_dbd],
-                   [dpy_by_dsx, dpy_by_dsy, dpy_by_dbd]])
+    return hstack([p_jacobian, p_jacobian * matrix([[dsx_by_dbd],[dsy_bd_dbd]])])
 
 def sub_jacobian_point(x, y, z, pixel_scale, bd):
     """
