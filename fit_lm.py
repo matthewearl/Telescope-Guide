@@ -60,8 +60,6 @@ def calculate_barrel_distortion(bd, sx, sy):
         x = x - (x * (1. + bd * x**2) - ru) / (1. + 3 * bd * x**2)
     rd = x
 
-    print "xxx %f %f" % (rd * (1. + bd * rd**2), ru)
-
     px = sx * rd / ru
     py = sy * rd / ru
 
@@ -79,7 +77,7 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
 
     ru = rd * (1 + bd * rd**2)
 
-    Where ru/rd are the distorted distance from the image centre.
+    Where ru/rd are the undistorted/distorted distance from the image centre.
 
     More specifically, this function returns:
 
@@ -98,8 +96,8 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
     #  sy = py * (1 + bd * (px**2 + py**2))
 
     dsx_by_dpx = (1. + 3. * bd * px**2 + bd * py**2)
-    dsy_by_dpx = (bd * py * (py**2 + 2. * px))
-    dsx_by_dpy = (bd * px * (px**2 + 2. * py))
+    dsy_by_dpx = 2. * bd * px * py
+    dsx_by_dpy = 2. * bd * px * py
     dsy_by_dpy = (1. + 3. * bd * py**2 + bd * px**2)
     dsx_by_dbd = px * (px**2 + py**2)
     dsy_by_dbd = py * (px**2 + py**2)
@@ -122,14 +120,13 @@ def make_barrel_distortion_jacobian(bd, sx, sy):
                          [dsy_by_dpx, dsy_by_dpy]])
     p_jacobian = s_jacobian.I
 
-    # Obtain dpx/dbd and dpy/dbd directly using the chain rule:
-    #   dpx/dbd = dpx/dsx * dsx/dbd + dpx/dsy * dsy/dbd
-    #   dpy/dbd = dpy/dsx * dsx/dbd + dpy/dsy * dsy/dbd
-    #
-    # Equivalently: [dpx/dbd] = p_jacobian * [ dsx/dbd ]
-    #               [dpy/dbd]                [ dsy/dbd ]
+    # Obtain dpx/dbd and dpy/dbd using the implicit function theorem
+    # for two variables.
 
-    return hstack([p_jacobian, p_jacobian * matrix([[dsx_by_dbd],[dsy_bd_dbd]])])
+    dpx_by_dbd = -dsx_by_dbd / dsx_by_dpx
+    dpy_by_dbd = -dsy_by_dbd / dsy_by_dpy
+
+    return hstack([p_jacobian, matrix([[dpx_by_dbd],[dpy_by_dbd]])])
 
 def sub_jacobian_point(x, y, z, pixel_scale, bd):
     """
@@ -158,6 +155,9 @@ def sub_jacobian_point(x, y, z, pixel_scale, bd):
 
     # Add on an extra row for dbd/d{param}
     out = vstack([out, matrix([[0.] * out.shape[1]])])
+
+    # Add on an extra column for d{sx,sy,bd}/dbd
+    out = hstack([out, matrix([[0.], [0.], [1.]])])
 
     # Compose with the barrel-distortion jacobian
     sx = pixel_scale * x / z
@@ -246,7 +246,7 @@ def matrix_normalize(m):
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
 def solve(world_points_in, image_points, annotate_images=None,
-          initial_matrices=None, change_ps=False, change_bd=False):
+          initial_matrices=None, initial_ps=2500., change_ps=False, change_bd=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -280,7 +280,7 @@ def solve(world_points_in, image_points, annotate_images=None,
         current_mat = [matrix_invert(m) for m in initial_matrices]
     else:
         current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
-    current_ps = 2500.
+    current_ps = initial_ps
     current_bd = 0.0
 
     def camera_to_image(m, ps, bd):
@@ -296,7 +296,7 @@ def solve(world_points_in, image_points, annotate_images=None,
         err = image_points - camera_to_image(camera_points, current_ps, current_bd)
         J = make_jacobian(camera_points.T[:, :3], keys, current_ps, current_bd)
         if not change_ps:
-            J = hstack(J[:, :-2], J[:, -1:])
+            J = hstack([J[:, :-2], J[:, -1:]])
         if not change_bd:
             J = J[:, :-1]
 
@@ -355,17 +355,11 @@ def test_calculate_barrel_distortion():
 def test_barrel_distortion_jacobian():
     sx = 2000 * random.random() - 1000.0
     sy = 2000 * random.random() - 1000.0
-    bd = .0000001 * random.random()
+    bd = .000001 * random.random()
 
     dsx = 0.02 * random.random() - 0.01
     dsy = 0.02 * random.random() - 0.01
-    dbd = 0.02 * random.random() - 0.01
-
-    #dsy = 0.
-    dsx = 0.
-    dbd = 0.
-
-    bd = 0.
+    dbd = -0.00000002 * random.random()
 
     px1, py1 = calculate_barrel_distortion(bd, sx, sy)
     px2, py2 = calculate_barrel_distortion(bd + dbd, sx + dsx, sy + dsy)
@@ -378,11 +372,6 @@ def test_barrel_distortion_jacobian():
 
 
 if __name__ == "__main__":
-    for i in range(10):
-        test_barrel_distortion_jacobian()
-
-    sys.exit(0)
-
     world_circles = gen_target.get_targets()
 
     optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
@@ -409,10 +398,13 @@ if __name__ == "__main__":
                         for image, color_image in zip(images, color_images)]
     print image_circles
     print "Solving"
-    Ms, ps = solve(world_circles, image_circles, annotate_images=color_images, change_ps=False)
+    Ms, ps, bd = solve(world_circles, image_circles, annotate_images=color_images)
 
     print "Solving for zoom"
-    print solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, change_ps=True)
+    Ms, ps, bd = solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, change_ps=True)
+
+    print "Solving for barrel distortion"
+    print solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, initial_ps=ps, change_ps=True, change_bd=True)
 
     for i, out_file_name in enumerate(out_file_names):
         cv.SaveImage(out_file_name, color_images[i])
