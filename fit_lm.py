@@ -7,11 +7,14 @@ import numpy
 from numpy import *
 import find_circles
 import util
+import fit
+import fit_project_ellipse
+import scipy.linalg
 
 __all__ = ['solve']
 
-STEP_FRACTION = 0.1
-ERROR_CUTOFF = 0.0001
+STEP_FRACTION = 0.5
+ERROR_CUTOFF = 0.001
 
 # sub_jacobian_point_<transformation>()
 #
@@ -236,17 +239,16 @@ def matrix_invert(m):
 
 
 def matrix_normalize(m):
-    m[2:3, :3] = cross(m[0:1, :3], m[1:2, :3])
-    m[2:3, :3] /= float(matrix(m[2:3, :3]) * matrix(m[2:3, :3]).T)
-    m[0:1, :3] = cross(m[1:2, :3], m[2:3, :3])
-    m[0:1, :3] /= float(matrix(m[0:1, :3]) * matrix(m[0:1, :3]).T)
-    m[1:2, :3] = cross(m[2:3, :3], m[0:1, :3])
-    m[1:2, :3] /= float(matrix(m[1:2, :3]) * matrix(m[1:2, :3]).T)
-
+    """
+    Use the polar decomposition to replace the matrix with its nearest
+    orthogonal matrix.
+    """
+    U, S, Vt = numpy.linalg.svd(m[:3, :3])
+    m[:3,:3] = U * Vt
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
 def solve(world_points_in, image_points, annotate_images=None,
-          initial_matrices=None, initial_ps=2500., change_ps=False, change_bd=False):
+          initial_matrices=None, initial_ps=3000., change_ps=False, change_bd=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -277,7 +279,7 @@ def solve(world_points_in, image_points, annotate_images=None,
     print image_points
 
     if initial_matrices:
-        current_mat = [matrix_invert(m) for m in initial_matrices]
+        current_mat = [m for m in initial_matrices]
     else:
         current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
     current_ps = initial_ps
@@ -335,7 +337,7 @@ def solve(world_points_in, image_points, annotate_images=None,
             util.draw_points(annotate_image,
                              dict(zip(all_keys, camera_to_image(all_camera_points, current_ps, current_bd).T)))
     
-    return [matrix_invert(M) for M in current_mat], current_ps, current_bd
+    return current_mat, current_ps, current_bd
     
 import random
 
@@ -397,13 +399,22 @@ if __name__ == "__main__":
                                                         find_ellipses=True)
                         for image, color_image in zip(images, color_images)]
     print image_circles
+
+    print "Finding approximate fit"
+    ps=3000.
+    ellipse_fitter = fit_project_ellipse.EllipseProjectFitter()
+    Ms = []
+    for color_image, features in zip(color_images, image_circles):
+        R, T, ps = ellipse_fitter.solve(world_circles,
+                                        features,
+                                        pixel_scale=ps,
+                                        annotate_image=None)
+        fit.draw_reprojected(R, T, ps, world_circles, color_image, color=(0, 255, 0))
+        M = hstack([R, T])
+        M = vstack([M, matrix([[0., 0., 0., 1.]])])
+        Ms.append(M)
+
     print "Solving"
-    Ms, ps, bd = solve(world_circles, image_circles, annotate_images=color_images)
-
-    print "Solving for zoom"
-    Ms, ps, bd = solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, change_ps=True)
-
-    print "Solving for barrel distortion"
     print solve(world_circles, image_circles, annotate_images=color_images, initial_matrices=Ms, initial_ps=ps, change_ps=True, change_bd=True)
 
     for i, out_file_name in enumerate(out_file_names):

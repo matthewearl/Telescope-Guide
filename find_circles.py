@@ -5,6 +5,7 @@ import getopt
 import random
 import sys
 import cv
+import cv2
 import math
 import util
 
@@ -228,7 +229,10 @@ def read_circular_barcode(image,
 
         return max_offset, float(max_rating) / len(pattern)
 
-    samples = [image[y, x] < 128.0 for x, y in gen_sample_points()]
+    try:
+        samples = [image[y, x] < 128.0 for x, y in gen_sample_points()]
+    except cv2.error as e:
+        return None
 
     offset, rating = find_pattern(samples, [False, True, True, True, True, False])
 

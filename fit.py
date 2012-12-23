@@ -40,13 +40,14 @@ def calc_reprojection_error(R,
 
     return (err * err.T)[0, 0]
 
-def draw_reprojected(R, T, pixel_scale, world_points, annotate_image):
+def draw_reprojected(R, T, pixel_scale, world_points, annotate_image, color=(255, 0, 0)):
     keys = list(world_points.keys())
     reprojected = project_points(R, T, pixel_scale, world_points, keys)
 
     for key in keys:
         util.draw_points(annotate_image,
-                         dict(zip(keys, list(reprojected.T))))
+                         dict(zip(keys, list(reprojected.T))),
+                         color=color)
 
 
 def fitter_main(args, fitter):
