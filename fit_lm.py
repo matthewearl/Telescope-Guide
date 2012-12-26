@@ -13,7 +13,7 @@ import scipy.linalg
 
 __all__ = ['solve']
 
-STEP_FRACTION = 0.5
+STEP_FRACTION = 1.
 ERROR_CUTOFF = 0.001
 
 # sub_jacobian_point_<transformation>()
@@ -203,41 +203,6 @@ def make_jacobian(points, keys, pixel_scale, bd):
 
     return vstack(Js)
 
-
-def matrix_rotate_x(theta):
-    s = math.sin(theta)
-    c = math.cos(theta)
-    return matrix([[1.0, 0.0, 0.0, 0.0],
-                   [0.0,   c,  -s, 0.0],
-                   [0.0,   s,   c, 0.0],
-                   [0.0, 0.0, 0.0, 1.0]])
-
-def matrix_rotate_y(theta):
-    s = math.sin(theta)
-    c = math.cos(theta)
-    return matrix([[  c, 0.0,   s, 0.0],
-                   [0.0, 1.0, 0.0, 0.0],
-                   [ -s, 0.0,   c, 0.0],
-                   [0.0, 0.0, 0.0, 1.0]])
-
-def matrix_rotate_z(theta):
-    s = math.sin(theta)
-    c = math.cos(theta)
-    return matrix([[ c,   -s, 0.0, 0.0],
-                   [ s,    c, 0.0, 0.0],
-                   [0.0, 0.0, 1.0, 0.0],
-                   [0.0, 0.0, 0.0, 1.0]])
-
-def matrix_trans(x, y, z):
-    return matrix([[1.0, 0.0, 0.0,   x],
-                   [0.0, 1.0, 0.0,   y],
-                   [0.0, 0.0, 1.0,   z],
-                   [0.0, 0.0, 0.0, 1.0]])
-
-def matrix_invert(m):
-    return vstack([hstack([m[:3, :3].T, -m[:3, 3:4]]), m[3:4, :]])
-
-
 def matrix_normalize(m):
     """
     Use the polar decomposition to replace the matrix with its nearest
@@ -281,7 +246,7 @@ def solve(world_points_in, image_points, annotate_images=None,
     if initial_matrices:
         current_mat = [m for m in initial_matrices]
     else:
-        current_mat = [matrix_trans(0.0, 0.0, 500.0)] * len(keys)
+        current_mat = [util.matrix_trans(0.0, 0.0, 500.0)] * len(keys)
     current_ps = initial_ps
     current_bd = 0.0
 
@@ -317,10 +282,10 @@ def solve(world_points_in, image_points, annotate_images=None,
 
         # Apply the parameter delta.
         for i in xrange(len(keys)):
-            current_mat[i] = matrix_trans(param_delta[6 * i + 0, 0], param_delta[6 * i + 1, 0], param_delta[6 * i + 2, 0]) * current_mat[i]
-            current_mat[i] = matrix_rotate_x(param_delta[6 * i + 3, 0]) * current_mat[i]
-            current_mat[i] = matrix_rotate_y(param_delta[6 * i + 4, 0]) * current_mat[i]
-            current_mat[i] = matrix_rotate_z(param_delta[6 * i + 5, 0]) * current_mat[i]
+            current_mat[i] = util.matrix_trans(param_delta[6 * i + 0, 0], param_delta[6 * i + 1, 0], param_delta[6 * i + 2, 0]) * current_mat[i]
+            current_mat[i] = util.matrix_rotate_x(param_delta[6 * i + 3, 0]) * current_mat[i]
+            current_mat[i] = util.matrix_rotate_y(param_delta[6 * i + 4, 0]) * current_mat[i]
+            current_mat[i] = util.matrix_rotate_z(param_delta[6 * i + 5, 0]) * current_mat[i]
             matrix_normalize(current_mat[i])
 
         if change_ps:

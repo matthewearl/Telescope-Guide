@@ -6,6 +6,39 @@ import scipy.linalg
 
 __all__ = ['draw_points', 'get_circle_pattern']
 
+def matrix_rotate_x(theta):
+    s = math.sin(theta)
+    c = math.cos(theta)
+    return matrix([[1.0, 0.0, 0.0, 0.0],
+                   [0.0,   c,  -s, 0.0],
+                   [0.0,   s,   c, 0.0],
+                   [0.0, 0.0, 0.0, 1.0]])
+
+def matrix_rotate_y(theta):
+    s = math.sin(theta)
+    c = math.cos(theta)
+    return matrix([[  c, 0.0,   s, 0.0],
+                   [0.0, 1.0, 0.0, 0.0],
+                   [ -s, 0.0,   c, 0.0],
+                   [0.0, 0.0, 0.0, 1.0]])
+
+def matrix_rotate_z(theta):
+    s = math.sin(theta)
+    c = math.cos(theta)
+    return matrix([[ c,   -s, 0.0, 0.0],
+                   [ s,    c, 0.0, 0.0],
+                   [0.0, 0.0, 1.0, 0.0],
+                   [0.0, 0.0, 0.0, 1.0]])
+
+def matrix_trans(x, y, z):
+    return matrix([[1.0, 0.0, 0.0,   x],
+                   [0.0, 1.0, 0.0,   y],
+                   [0.0, 0.0, 1.0,   z],
+                   [0.0, 0.0, 0.0, 1.0]])
+
+def matrix_invert(m):
+    return vstack([hstack([m[:3, :3].T, -m[:3, 3:4]]), m[3:4, :]])
+
 def left_inverse(A):
     return (A.T * A).I * A.T
 
