@@ -11,8 +11,11 @@ from ann import ann
 
 __all__ = ['StarDatabase']
 
-RA_RE = re.compile("([+-]?[0-9]+):([0-9]+):([0-9]+\.[0-9]+)")
+RA_RE = re.compile("([+-]?[0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
 DEC_RE = RA_RE
+
+class InvalidFormatException(Exception):
+    pass
 
 def angles_to_vec(ra, dec):
     out = util.matrix_rotate_y(-ra) * \
@@ -23,6 +26,8 @@ def angles_to_vec(ra, dec):
 
 def parse_ra(s):
     m = RA_RE.match(s)
+    if not m:
+        raise InvalidFormatException()
     coords = [float(m.group(i)) for i in [1,2,3]]
     
     out = coords[0] + coords[1] / 60. + coords[2] / 3600.0
@@ -31,6 +36,8 @@ def parse_ra(s):
 
 def parse_dec(s):
     m = DEC_RE.match(s)
+    if not m:
+        raise InvalidFormatException()
     coords = [float(m.group(i)) for i in [1,2,3]]
 
     out = coords[0] + coords[1] / 60. + coords[2] / 3600.0
@@ -120,11 +127,35 @@ class BscStar(Star):
                                       dec=sdec0,
                                       mag=(0.01 * mag))
 
+class HipStar(Star):
+    def __init__(self, line):
+        """
+        Format spec:
+            ftp://cdsarc.u-strasbg.fr/pub/cats/I%2F239/ReadMe
+        """
+
+        if not line[41:46].strip():
+            raise InvalidFormatException()
+    
+        super(HipStar, self).__init__(id=("HIP%u" % int(line[8:14])),
+                                      ra=parse_ra(line[17:28]),
+                                      dec=parse_dec(line[29:40]),
+                                      mag=float(line[41:46]))
+
 def bsc_star_gen(bsc_file='data/BSC5'):
     with open(bsc_file, "rb") as f:
         header = StarDatabaseHeader(f)
         for i in range(header.num_stars):
             yield BscStar(f)
+
+def hip_star_gen(dat_file='data/hip_main.dat'):
+    with open(dat_file, "r") as f:
+        for line in f.readlines():
+            try:
+                s = HipStar(line)
+                yield s
+            except InvalidFormatException:
+                pass
 
 class StarDatabase(object):
     def __init__(self, star_iterable):
@@ -147,7 +178,7 @@ class StarDatabase(object):
 
 if __name__ == "__main__":
     print "Loading database..."
-    db = StarDatabase(bsc_star_gen())
+    db = StarDatabase(hip_star_gen())
     print "Searching..."
     ra = parse_ra(sys.argv[1])
     dec = parse_dec(sys.argv[2])
