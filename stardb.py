@@ -5,9 +5,9 @@ import math
 import struct
 import util
 import re
+import scipy.spatial
 
 from numpy import *
-from ann import ann
 
 __all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen']
 
@@ -181,26 +181,22 @@ def xy_list_star_gen(axy_file, cam_model):
 class StarDatabase(object):
     def __init__(self, star_iterable):
         self.stars = list(star_iterable)
-        self.tree = ann.kd_tree(vstack([star.vec.T for star in self.stars]), copy=False)
+        self.tree = scipy.spatial.KDTree(vstack([star.vec.T for star in self.stars]))
 
     def search_vec(self, vec, radius):
-        idx_mat, d2_mat = self.tree.fixed_radius_search(
-                vec.T,
-                radius,
-                k=len(self.stars))
+        indices = self.tree.query_ball_point(vec.flat, radius)
 
-        for idx, d2 in zip(idx_mat.flat, d2_mat.flat):
-            if idx == -1:
-                break
-            if d2 <= radius**2:
-                yield self.stars[idx], math.sqrt(d2)
+        for idx in indices:
+            star = self.stars[idx]
+            d = linalg.norm(star.vec - vec)
+            yield star, d
 
     def __iter__(self):
         return iter(self.stars)
 
     def search(self, ra, dec, radius):
-        self.search_vec(angles_to_vec(ra, dec),
-                        radius)
+        return self.search_vec(angles_to_vec(ra, dec),
+                               radius)
 
 if __name__ == "__main__":
     print "Loading database..."
