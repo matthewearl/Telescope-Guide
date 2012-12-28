@@ -3,9 +3,9 @@
 import math
 import time
 import stardb
+import scipy.spatial
 
 from numpy import *
-from ann import ann
 
 NUM_NEIGHBOURS = 10
 NEIGHBOUR_RADIUS = (2. * math.pi/180.)
@@ -22,7 +22,6 @@ class Asterism(object):
             diffs = list(reversed(diffs))
 
         self.vec = matrix([dists + [diffs[0].T * diffs[1]]]).T
-        print self.vec
 
 def choose(l, n):
     if n == 0:
@@ -52,14 +51,13 @@ def asterisms_gen(star_db, main_max_mag=5.0):
 class AsterismDatabase(object):
     def __init__(self, asterism_iterable):
         self.asterisms = list(asterism_iterable)
-        d = vstack([ast.vec.T for ast in self.asterisms])
-        print repr(d)
-        self.tree = ann.kd_tree(d, copy=False)
+        self.tree = scipy.spatial.KDTree(vstack([ast.vec.T for ast in self.asterisms]))
 
     def search(self, query_ast):
-        idx_mat, d2_mat = self.tree.search(quemry_ast.vec)
-        assert idx_mat.shape[0] == 1
-        return self.asterisms[idx_mat[0, 0]], math.sqrt(d2_mat[0, 0])
+        dists, indices = self.tree.query(query_ast.flat)
+        assert len(dists) == 1
+        assert len(indices) == 1
+        return self.asterisms[indices[0]], dists[0]
 
 if __name__ == "__main__":
     print "%f: Building star database..." % time.clock()
