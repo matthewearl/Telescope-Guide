@@ -1,15 +1,18 @@
 #!/usr/bin/python
 
+import pyfits
+import os
 import sys
 import math
 import struct
 import util
 import re
 import scipy.spatial
+import cPickle as pickle
 
 from numpy import *
 
-__all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen']
+__all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen', 'HipStar']
 
 RA_RE = re.compile("([+-]?[0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
 DEC_RE = RA_RE
@@ -156,27 +159,57 @@ class HipStar(EquatorialStar):
                                       dec=parse_dec(line[29:40]),
                                       mag=float(line[41:46]))
 
+class ImageStar(Star):
+    def __init__(self, id, coords, cam_model, flux):
+        self.coords = coords
+        self.cam_model = cam_model
+        self.flux = flux
+        super(ImageStar, self).__init__(id=id,
+                                        vec=cam_model.pixel_to_vec(*coords),
+                                        mag=(-flux))
+
+    def __repr__(self):
+        return "<ImageStar(id=%s, coords=%s, cam_model=%s, flux=%s)>" % \
+                (self.id, self.coords, self.cam_model, self.flux)
+
+    def __str__(self):
+        return "Flux: %f, Id: %s, Coords: %s" % (self.flux, self.id, self.coords)
+
+
 def bsc_star_gen(bsc_file='data/BSC5'):
     with open(bsc_file, "rb") as f:
         header = StarDatabaseHeader(f)
         for i in range(header.num_stars):
             yield BscStar(f)
 
-def hip_star_gen(dat_file='data/hip_main.dat'):
-    with open(dat_file, "r") as f:
-        for line in f.readlines():
-            try:
-                s = HipStar(line)
-                yield s
-            except InvalidFormatException:
-                pass
+def hip_star_gen(dat_file='data/hip_main.dat', mag_limit=9.5, use_cache=True):
+    from stardb import HipStar
+
+    cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
+
+    if use_cache and os.path.exists(cache_file_name):
+        with open(cache_file_name, "r") as cache_file:
+            stars = pickle.load(cache_file)
+    else:
+        stars = []
+        with open(dat_file, "r") as f:
+            for line in f.readlines():
+                try:
+                    star = HipStar(line)
+                    if star.mag < mag_limit:
+                        stars.append(star)
+                except InvalidFormatException:
+                    pass
+
+        with open(cache_file_name, "w") as cache_file:
+            pickle.dump(stars, cache_file)
+
+    return stars
 
 def xy_list_star_gen(axy_file, cam_model):
     with pyfits.open(axy_file) as hdulist:
         for i, (x, y, flux, bg) in enumerate(hdulist['SOURCES'].data):
-            yield Star("%s%u" % (axy_file, i),
-                       cam_model.pixel_to_vec(x, y),
-                       flux)
+            yield ImageStar("%s%u" % (axy_file, i), (x, y), cam_model, flux)
                           
 class StarDatabase(object):
     def __init__(self, star_iterable):
@@ -198,7 +231,7 @@ class StarDatabase(object):
         return self.search_vec(angles_to_vec(ra, dec),
                                radius)
 
-if __name__ == "__main__":
+def main():
     print "Loading database..."
     db = StarDatabase(hip_star_gen('data/tyc_main.dat'))
     print "Searching..."
@@ -209,3 +242,7 @@ if __name__ == "__main__":
     for star, d in db.search(ra, dec, radius):
         print "%f: %s" % (d * 180. / math.pi, star)
     
+if __name__ == "__main__":
+    #import cProfile
+    #cProfile.run('main()')
+    main()
