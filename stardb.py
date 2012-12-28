@@ -9,7 +9,7 @@ import re
 from numpy import *
 from ann import ann
 
-__all__ = ['StarDatabase']
+__all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen']
 
 RA_RE = re.compile("([+-]?[0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
 DEC_RE = RA_RE
@@ -96,6 +96,20 @@ class StarDatabaseHeader(object):
         return "<StarDatabaseHeader(num_stars=%u)>" % self.num_stars
 
 class Star(object):
+    def __init__(self, id, vec, mag):
+        self.id = id
+        self.vec = vec
+        self.mag = mag
+
+    def __repr__(self):
+        return "<Star(id={id}, vec={vec}, mag={mag})>".format(
+                    id=self.id, vec=self.vec, mag=self.mag)
+
+    def __str__(self):
+        return "Mag: %f, Id: %s, Vec: %s" % \
+                    (self.mag, self.id, self.vec)
+
+class EquatorialStar(Star):
     def __init__(self, id, ra, dec, mag):
         self.id = id
         self.ra = ra
@@ -104,14 +118,14 @@ class Star(object):
         self.vec = angles_to_vec(self.ra, self.dec)
 
     def __repr__(self):
-        return "<Star(id={id},\tra={ra},\tdec={dec},\tmag={mag})>".format(
+        return "<EquatorialStar(id={id},\tra={ra},\tdec={dec},\tmag={mag})>".format(
                     id=self.id, ra=self.ra, dec=self.dec, mag=self.mag)
 
     def __str__(self):
         return "Mag: %f, Id: %s, RA: %s, DE: %s" % \
                 (self.mag, self.id, ra_to_str(self.ra), dec_to_str(self.dec))
 
-class BscStar(Star):
+class BscStar(EquatorialStar):
     ENTRY_LENGTH = 32
 
     def __init__(self, f):
@@ -127,7 +141,7 @@ class BscStar(Star):
                                       dec=sdec0,
                                       mag=(0.01 * mag))
 
-class HipStar(Star):
+class HipStar(EquatorialStar):
     def __init__(self, line):
         """
         Format spec:
@@ -137,7 +151,7 @@ class HipStar(Star):
         if not line[41:46].strip():
             raise InvalidFormatException()
     
-        super(HipStar, self).__init__(id=("HIP%u" % int(line[8:14])),
+        super(HipStar, self).__init__(id=("HIP %s" % line[8:14].strip()),
                                       ra=parse_ra(line[17:28]),
                                       dec=parse_dec(line[29:40]),
                                       mag=float(line[41:46]))
@@ -157,16 +171,21 @@ def hip_star_gen(dat_file='data/hip_main.dat'):
             except InvalidFormatException:
                 pass
 
+def xy_list_star_gen(axy_file, cam_model):
+    with pyfits.open(axy_file) as hdulist:
+        for i, (x, y, flux, bg) in enumerate(hdulist['SOURCES'].data):
+            yield Star("%s%u" % (axy_file, i),
+                       cam_model.pixel_to_vec(x, y),
+                       flux)
+                          
 class StarDatabase(object):
     def __init__(self, star_iterable):
         self.stars = list(star_iterable)
-        self.tree = ann.kd_tree(vstack([star.vec.T for star in self.stars]))
+        self.tree = ann.kd_tree(vstack([star.vec.T for star in self.stars]), copy=False)
 
-    def search(self, ra, dec, radius):
-        v = angles_to_vec(ra, dec)
-
+    def search_vec(self, vec, radius):
         idx_mat, d2_mat = self.tree.fixed_radius_search(
-                v.T,
+                vec.T,
                 radius,
                 k=len(self.stars))
 
@@ -176,9 +195,16 @@ class StarDatabase(object):
             if d2 <= radius**2:
                 yield self.stars[idx], math.sqrt(d2)
 
+    def __iter__(self):
+        return iter(self.stars)
+
+    def search(self, ra, dec, radius):
+        self.search_vec(angles_to_vec(ra, dec),
+                        radius)
+
 if __name__ == "__main__":
     print "Loading database..."
-    db = StarDatabase(hip_star_gen())
+    db = StarDatabase(hip_star_gen('data/tyc_main.dat'))
     print "Searching..."
     ra = parse_ra(sys.argv[1])
     dec = parse_dec(sys.argv[2])
