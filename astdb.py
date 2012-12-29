@@ -7,6 +7,7 @@ import time
 import stardb
 import scipy.spatial
 import camera
+import collections
 
 from numpy import *
 
@@ -15,20 +16,35 @@ NEIGHBOUR_RADIUS = (3. * math.pi/180.)
 
 class Asterism(object):
     def __init__(self, main_star, neighbours):
+        assert len(neighbours) == 3
+
         self.main_star = main_star
         self.neighbours = neighbours
         
         diffs = [neigh.vec - main_star.vec for neigh in neighbours]
         dists = [linalg.norm(d) for d in diffs]
-        if dists[0] < dists[1]:
-            dists = list(reversed(dists))
-            diffs = list(reversed(diffs))
 
-        cosangle = (diffs[0].T * diffs[1])[0,0] / (dists[0] * dists[1])
+        max_idx = max(enumerate(dists), key=(lambda t: t[1]))[0]
+        other_idx = range(0,max_idx) + range(max_idx+1,3)
 
-        self.vec = matrix([[dists[0]/NEIGHBOUR_RADIUS],
-                           [dists[1]/NEIGHBOUR_RADIUS],
-                           [cosangle]])
+        coord_frame = matrix(zeros((3,3)))
+        coord_frame[:, 2] = main_star.vec
+        coord_frame[:, 0] = cross(diffs[max_idx].T, coord_frame[:, 2].T).T
+        coord_frame[:, 1] = cross(coord_frame[:,0].T, coord_frame[:,2].T).T
+
+        for i in range(3):
+            coord_frame[:, i] /= linalg.norm(coord_frame[:, i])
+
+        coord_frame *= dists[max_idx]
+
+        hash_matrix = coord_frame.I * hstack([diffs[other_idx[0]], diffs[other_idx[1]]])
+        hash_matrix = hash_matrix[:2, :2]
+
+        if hash_matrix[0, 0] > hash_matrix[0, 1]:
+            hash_matrix = fliplr(hash_matrix)
+
+        self.vec = vstack([matrix([[dists[max_idx] / NEIGHBOUR_RADIUS]]),
+                           hash_matrix.T.reshape((4,1))])
 
     def __repr__(self):
         return "<Asterism(main_star=%s, neighbours=%s, vec=%s)>" % (
@@ -50,13 +66,11 @@ def asterisms_for_star(main_star, star_db):
                                 if neighbour_star != main_star),
                               key=lambda x: x.mag))[:NUM_NEIGHBOURS]
 
-    for neighbour_pair in choose(neighbour_stars, 2):
+    for neighbour_pair in choose(neighbour_stars, 3):
         ast = Asterism(main_star, neighbour_pair)
-        if main_star.id == "HIP 91262":
-            print "Ast for Vega (HIP 91262): %s" % ast
         yield ast
 
-def asterisms_gen(star_db, main_max_mag=2.0):
+def asterisms_gen(star_db, main_max_mag=4.0):
     for main_star in star_db:
         if main_star.mag < main_max_mag:
             for ast in asterisms_for_star(main_star, star_db):
@@ -76,12 +90,17 @@ def align_image(axy_file, cam_model, ast_db):
 
     for image_star in itertools.islice(
             sorted(image_star_db, key=lambda s: s.mag),
-            0, 3):
-        print "Matches for %s" % image_star
+            0, 10):
+
+        scores = collections.defaultdict(int)
 
         for query_ast in asterisms_for_star(image_star, image_star_db):
-            print "    query: %s" % query_ast
-            print "    closest: %s" % (ast_db.search(query_ast),)
+            closest = ast_db.search(query_ast)[0].main_star
+            scores[closest.id] += 1
+
+        best_id, score = max(scores.iteritems(), key=(lambda x: x[1]))
+        print "Best match for %s: %s (score %u)" % (image_star.coords, best_id, score)
+            
 
 if __name__ == "__main__":
     print "%f: Building star database..." % time.clock()
@@ -96,4 +115,5 @@ if __name__ == "__main__":
             683.,
             1024.)
     align_image(sys.argv[1], cam_model, ast_db)
+    print "%f: Done" % time.clock()
 
