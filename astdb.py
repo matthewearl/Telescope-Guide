@@ -11,7 +11,7 @@ import camera
 from numpy import *
 
 NUM_NEIGHBOURS = 10
-NEIGHBOUR_RADIUS = (2. * math.pi/180.)
+NEIGHBOUR_RADIUS = (3. * math.pi/180.)
 
 class Asterism(object):
     def __init__(self, main_star, neighbours):
@@ -24,7 +24,11 @@ class Asterism(object):
             dists = list(reversed(dists))
             diffs = list(reversed(diffs))
 
-        self.vec = matrix([dists + [diffs[0].T * diffs[1]]]).T
+        cosangle = (diffs[0].T * diffs[1])[0,0] / (dists[0] * dists[1])
+
+        self.vec = matrix([[dists[0]/NEIGHBOUR_RADIUS],
+                           [dists[1]/NEIGHBOUR_RADIUS],
+                           [cosangle]])
 
     def __repr__(self):
         return "<Asterism(main_star=%s, neighbours=%s, vec=%s)>" % (
@@ -47,9 +51,12 @@ def asterisms_for_star(main_star, star_db):
                               key=lambda x: x.mag))[:NUM_NEIGHBOURS]
 
     for neighbour_pair in choose(neighbour_stars, 2):
-        yield Asterism(main_star, neighbour_pair)
+        ast = Asterism(main_star, neighbour_pair)
+        if main_star.id == "HIP 91262":
+            print "Ast for Vega (HIP 91262): %s" % ast
+        yield ast
 
-def asterisms_gen(star_db, main_max_mag=5.0):
+def asterisms_gen(star_db, main_max_mag=2.0):
     for main_star in star_db:
         if main_star.mag < main_max_mag:
             for ast in asterisms_for_star(main_star, star_db):
@@ -73,7 +80,8 @@ def align_image(axy_file, cam_model, ast_db):
         print "Matches for %s" % image_star
 
         for query_ast in asterisms_for_star(image_star, image_star_db):
-            print "    %s" % (ast_db.search(query_ast),)
+            print "    query: %s" % query_ast
+            print "    closest: %s" % (ast_db.search(query_ast),)
 
 if __name__ == "__main__":
     print "%f: Building star database..." % time.clock()
@@ -83,6 +91,9 @@ if __name__ == "__main__":
     print "%f: Aligning image" % time.clock()
 
     cam_model = camera.BarrelDistortionCameraModel(
-            3080.1049050112761, 1.5762197792252771e-08)
+            3080.1049050112761 * 1024./3888.,
+            1.57e-08 * (3888./1024.)**2,
+            683.,
+            1024.)
     align_image(sys.argv[1], cam_model, ast_db)
 

@@ -169,8 +169,8 @@ class ImageStar(Star):
                                         mag=(-flux))
 
     def __repr__(self):
-        return "<ImageStar(id=%s, coords=%s, cam_model=%s, flux=%s)>" % \
-                (self.id, self.coords, self.cam_model, self.flux)
+        return "<ImageStar(id=%s, coords=%s, cam_model=%s, flux=%s, vec=%s)>" % \
+                (self.id, self.coords, self.cam_model, self.flux, repr(self.vec))
 
     def __str__(self):
         return "Flux: %f, Id: %s, Coords: %s" % (self.flux, self.id, self.coords)
@@ -233,7 +233,7 @@ class StarDatabase(object):
 
 def main():
     print "Loading database..."
-    db = StarDatabase(hip_star_gen('data/tyc_main.dat'))
+    db = StarDatabase(hip_star_gen('data/hip_main.dat'))
     print "Searching..."
     ra = parse_ra(sys.argv[1])
     dec = parse_dec(sys.argv[2])
