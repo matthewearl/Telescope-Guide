@@ -27,6 +27,14 @@ def angles_to_vec(ra, dec):
 
     return out[:3, :]
 
+def vec_to_angles(vec):
+    ra = -math.atan2(vec[0, 0], vec[2, 0])
+    ra = ra % (2. * math.pi)
+    vec = util.matrix_rotate_y(ra)[:3, :3] * vec
+    dec = math.atan2(vec[1, 0], vec[2, 0])
+
+    return ra, dec
+
 def parse_ra(s):
     m = RA_RE.match(s)
     if not m:

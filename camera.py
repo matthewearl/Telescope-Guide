@@ -14,7 +14,6 @@ class BarrelDistortionCameraModel(object):
         self.image_height = image_height
 
     def pixel_to_vec(self, x, y):
-
         x = x - 0.5 * self.image_width
         y = y - 0.5 * self.image_height
 

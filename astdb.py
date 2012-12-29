@@ -8,11 +8,13 @@ import stardb
 import scipy.spatial
 import camera
 import collections
+import util
 
 from numpy import *
 
 NUM_NEIGHBOURS = 10
 NEIGHBOUR_RADIUS = (3. * math.pi/180.)
+SCORE_THRESHOLD = 20
 
 class Asterism(object):
     def __init__(self, main_star, neighbours):
@@ -88,19 +90,33 @@ class AsterismDatabase(object):
 def align_image(axy_file, cam_model, ast_db):
     image_star_db = stardb.StarDatabase(stardb.xy_list_star_gen(axy_file, cam_model))
 
+    best_scores = []
     for image_star in itertools.islice(
             sorted(image_star_db, key=lambda s: s.mag),
-            0, 10):
+            0, 50):
 
         scores = collections.defaultdict(int)
 
         for query_ast in asterisms_for_star(image_star, image_star_db):
             closest = ast_db.search(query_ast)[0].main_star
-            scores[closest.id] += 1
+            scores[closest] += 1
 
-        best_id, score = max(scores.iteritems(), key=(lambda x: x[1]))
-        print "Best match for %s: %s (score %u)" % (image_star.coords, best_id, score)
+        best_star, score = max(scores.iteritems(), key=(lambda x: x[1]))
+
+        best_scores.append((score, image_star, best_star))
             
+    for score, image_star, best_star in sorted(best_scores):
+        print "Best match for %s: %s (score %s)" % (image_star.coords, best_star.id, score)
+
+    best_scores = [x for x in best_scores if x[0] > SCORE_THRESHOLD]
+
+    camera_points = hstack([image_star.vec for score, image_star, best_star in best_scores])
+    world_points = hstack([best_star.vec for score, image_star, best_star in best_scores])
+
+    R, T = util.orientation_from_correspondences(camera_points, world_points)
+
+    return stardb.vec_to_angles(R[:, 2])
+
 
 if __name__ == "__main__":
     print "%f: Building star database..." % time.clock()
@@ -114,6 +130,7 @@ if __name__ == "__main__":
             1.57e-08 * (3888./1024.)**2,
             683.,
             1024.)
-    align_image(sys.argv[1], cam_model, ast_db)
+    ra, dec = align_image(sys.argv[1], cam_model, ast_db)
+    print "RA: %s, Dec: %s" % (stardb.ra_to_str(ra), stardb.dec_to_str(dec))
     print "%f: Done" % time.clock()
 
