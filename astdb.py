@@ -1,5 +1,8 @@
 #!/usr/bin/python
 
+import cv
+import sys
+import argparse
 import itertools
 import sys
 import math
@@ -115,22 +118,62 @@ def align_image(axy_file, cam_model, ast_db):
 
     R, T = util.orientation_from_correspondences(camera_points, world_points)
 
-    return stardb.vec_to_angles(R[:, 2])
+    return stardb.vec_to_angles(R[:, 2]) + (R,)
 
+def draw_stars(star_db, image, R, cam_model, mag_limit=4.0):
+    """
+    Draw stars on an image. The camera is assumed to be orientated at R.
+    """
+
+    for star in (s for s in star_db if s.mag < mag_limit):
+        vec = R.T * star.vec
+        if vec[2, 0] > 0:
+            coords = tuple(map(int, cam_model.vec_to_pixel(vec)))
+            cv.Circle(image, coords, 5, cv.CV_RGB(0, 255, 0))
+
+
+class StarAlignArgumentParser(argparse.ArgumentParser):
+    def __init__(self):
+        super(StarAlignArgumentParser, self).__init__(description='Align a star field')
+
+        self.add_argument('-i', '--input-image', help='Input image', required=True)
+        self.add_argument('-o', '--output-image', help='Output image', required=True)
+        self.add_argument('-a', '--xy-list', help='XY list', required=True)
+        self.add_argument('-p',
+                          '--pixel-scale',
+                          type=float,
+                          help='Pixel scale',
+                          required=True)
+        self.add_argument('-b',
+                          '--barrel-distortion',
+                          type=float,
+                          help='Barrel distortion',
+                          required=True)
 
 if __name__ == "__main__":
+    args = StarAlignArgumentParser().parse_args()
+
+    print "%f: Loading input image" % time.clock()
+    image = cv.LoadImage(args.input_image, True)
+
     print "%f: Building star database..." % time.clock()
     star_db = stardb.StarDatabase(stardb.hip_star_gen('data/hip_main.dat'))
+
     print "%f: Building asterism database..." % time.clock()
     ast_db = AsterismDatabase(asterisms_gen(star_db))
-    print "%f: Aligning image" % time.clock()
 
-    cam_model = camera.BarrelDistortionCameraModel(
-            3080.1049050112761 * 1024./3888.,
-            1.57e-08 * (3888./1024.)**2,
-            683.,
-            1024.)
-    ra, dec = align_image(sys.argv[1], cam_model, ast_db)
+    print "%f: Aligning image" % time.clock()
+    ps = args.pixel_scale * min(image.width, image.height) / 2592.
+    bd = args.barrel_distortion * (2592. / min(image.width, image.height))**2
+    cam_model = camera.BarrelDistortionCameraModel( ps, bd, image.width, image.height)
+    ra, dec, R = align_image(args.xy_list, cam_model, ast_db)
     print "RA: %s, Dec: %s" % (stardb.ra_to_str(ra), stardb.dec_to_str(dec))
+
+    print "%f: Drawing stars" % time.clock()
+    draw_stars(star_db, image, R, cam_model)
+
+    print "%f: Saving image" % time.clock()
+    cv.SaveImage(args.output_image, image)
+
     print "%f: Done" % time.clock()
 
