@@ -91,8 +91,6 @@ class Ellipse(Feature):
         self.centre = (m.m10 / m.m00, m.m01 / m.m00)
         self.angle = 0.5 * math.atan2(2. * m.mu11, m.mu20 - m.mu02)
 
-        self.areas = [m.m00] + list(m.m00 for m in moments)
-
         def variance_at_angle(angle):
             s, c = math.sin(2.0 * angle), math.cos(2.0 * angle)
             nu11, nu02, nu20 = (x / m.m00 for x in (m.mu11, m.mu02, m.mu20))

@@ -2,6 +2,7 @@
 
 import getopt, sys, math, cv
 
+import argparse
 import gen_target
 import numpy
 from numpy import *
@@ -213,7 +214,7 @@ def matrix_normalize(m):
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
 def solve(world_points_in, image_points, annotate_images=None,
-          initial_matrices=None, initial_ps=3000., change_ps=False, change_bd=False):
+          initial_matrices=None, initial_bd=0., initial_ps=3000., change_ps=False, change_bd=False):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
@@ -248,7 +249,7 @@ def solve(world_points_in, image_points, annotate_images=None,
     else:
         current_mat = [util.matrix_trans(0.0, 0.0, 500.0)] * len(keys)
     current_ps = initial_ps
-    current_bd = 0.0
+    current_bd = initial_bd
 
     def camera_to_image(m, ps, bd):
         def map_point(c):
@@ -337,19 +338,21 @@ def test_barrel_distortion_jacobian():
     J = make_barrel_distortion_jacobian(bd, sx, sy)
     print (J * matrix([[dsx, dsy, dbd]]).T).T
 
+class CalibrateParser(argparse.ArgumentParser):
+    def __init__(self):
+        super(CalibrateParser, self).__init__(description='Calibrate a camera')
+
+        self.add_argument('-i', '--input-images', nargs='+', help='Input image', required=True)
+
 
 if __name__ == "__main__":
+    args = CalibrateParser().parse_args()
     world_circles = gen_target.get_targets()
 
-    optlist, args = getopt.getopt(sys.argv[1:], 'i:o:')
+    in_file_names = args.input_images
+    out_file_names = ["calibrated-%u.png" % i for i in range(len(in_file_names))]
 
-    in_file_names = []
-    out_file_names = []
-    for opt, param in optlist:
-        if opt == "-i":
-            in_file_names += [param]
-        if opt == "-o":
-            out_file_names += [param]
+    print in_file_names
 
     if not in_file_names:
         raise Exception("Usage: %s -i <input image> [-o <output image>]" % sys.argv[0])
@@ -364,9 +367,11 @@ if __name__ == "__main__":
                                                         find_ellipses=True)
                         for image, color_image in zip(images, color_images)]
     print image_circles
+    for i, out_file_name in enumerate(out_file_names):
+        cv.SaveImage(out_file_name, color_images[i])
 
     print "Finding approximate fit"
-    ps=3000.
+    ps=3156.
     ellipse_fitter = fit_project_ellipse.EllipseProjectFitter()
     Ms = []
     for color_image, features in zip(color_images, image_circles):

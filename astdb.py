@@ -16,9 +16,9 @@ import util
 
 from numpy import *
 
-NUM_NEIGHBOURS = 10
+NUM_NEIGHBOURS = 6
 NEIGHBOUR_RADIUS = (3. * math.pi/180.)
-SCORE_THRESHOLD = 20
+SCORE_THRESHOLD = 6
 
 class CouldNotAlignError(Exception):
     pass
@@ -108,14 +108,14 @@ def align_image(axy_file, cam_model, ast_db):
             closest = ast_db.search(query_ast)[0].main_star
             scores[closest] += 1
 
-        best_star, score = max(scores.iteritems(), key=(lambda x: x[1]))
-
-        best_scores.append((score, image_star, best_star))
+        if scores:
+            best_star, score = max(scores.iteritems(), key=(lambda x: x[1]))
+            best_scores.append((score, image_star, best_star))
             
     for score, image_star, best_star in sorted(best_scores):
         print "Best match for %s: %s (score %s)" % (image_star.coords, best_star.id, score)
 
-    best_scores = [x for x in best_scores if x[0] > SCORE_THRESHOLD]
+    best_scores = [x for x in best_scores if x[0] >= SCORE_THRESHOLD]
     if len(best_scores) == 0:
         raise CouldNotAlignError()
 
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     print "%f: Aligning image" % time.clock()
     ps = args.pixel_scale * min(image.width, image.height) / 2592.
     bd = args.barrel_distortion * (2592. / min(image.width, image.height))**2
-    cam_model = camera.BarrelDistortionCameraModel( ps, bd, image.width, image.height)
+    cam_model = camera.BarrelDistortionCameraModel(ps, bd, image.width, image.height)
     ra, dec, R = align_image(args.xy_list, cam_model, ast_db)
     print "RA: %s, Dec: %s" % (stardb.ra_to_str(ra), stardb.dec_to_str(dec))
 
