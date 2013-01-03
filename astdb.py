@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import subprocess
 import cv
 import sys
 import argparse
@@ -18,6 +19,9 @@ from numpy import *
 NUM_NEIGHBOURS = 10
 NEIGHBOUR_RADIUS = (3. * math.pi/180.)
 SCORE_THRESHOLD = 20
+
+class CouldNotAlignError(Exception):
+    pass
 
 class Asterism(object):
     def __init__(self, main_star, neighbours):
@@ -112,6 +116,8 @@ def align_image(axy_file, cam_model, ast_db):
         print "Best match for %s: %s (score %s)" % (image_star.coords, best_star.id, score)
 
     best_scores = [x for x in best_scores if x[0] > SCORE_THRESHOLD]
+    if len(best_scores) == 0:
+        raise CouldNotAlignError()
 
     camera_points = hstack([image_star.vec for score, image_star, best_star in best_scores])
     world_points = hstack([best_star.vec for score, image_star, best_star in best_scores])
@@ -138,7 +144,7 @@ class StarAlignArgumentParser(argparse.ArgumentParser):
 
         self.add_argument('-i', '--input-image', help='Input image', required=True)
         self.add_argument('-o', '--output-image', help='Output image', required=True)
-        self.add_argument('-a', '--xy-list', help='XY list', required=True)
+        self.add_argument('-a', '--xy-list', help='XY list')
         self.add_argument('-p',
                           '--pixel-scale',
                           type=float,
@@ -152,6 +158,17 @@ class StarAlignArgumentParser(argparse.ArgumentParser):
 
 if __name__ == "__main__":
     args = StarAlignArgumentParser().parse_args()
+
+    if args.xy_list is None:
+        print "%f: Generating augmented xy-list" % time.clock()
+        args.xy_list = "temp.axy"
+        rc = subprocess.call(["augment-xylist",
+                              "-i",
+                              args.input_image,
+                              "-o",
+                              args.xy_list])
+        if rc != 0:
+            raise Exception("augment-xylist returned %u" % rc)
 
     print "%f: Loading input image" % time.clock()
     image = cv.LoadImage(args.input_image, True)
