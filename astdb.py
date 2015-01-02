@@ -94,8 +94,8 @@ class AsterismDatabase(object):
         dist, idx = self.tree.query(query_ast.vec.flat)
         return self.asterisms[idx], dist
 
-def align_image(axy_file, cam_model, ast_db):
-    image_star_db = stardb.StarDatabase(stardb.xy_list_star_gen(axy_file, cam_model))
+def align_image(image_stars, ast_db):
+    image_star_db = stardb.StarDatabase(image_stars)
 
     best_scores = []
     for image_star in itertools.islice(
@@ -145,6 +145,7 @@ class StarAlignArgumentParser(argparse.ArgumentParser):
         self.add_argument('-i', '--input-image', help='Input image', required=True)
         self.add_argument('-o', '--output-image', help='Output image', required=True)
         self.add_argument('-a', '--xy-list', help='XY list')
+        self.add_argument('-c', '--cat-file', help='SExtractor catalogue')
         self.add_argument('-p',
                           '--pixel-scale',
                           type=float,
@@ -159,7 +160,7 @@ class StarAlignArgumentParser(argparse.ArgumentParser):
 if __name__ == "__main__":
     args = StarAlignArgumentParser().parse_args()
 
-    if args.xy_list is None:
+    if args.xy_list is None and args.cat_file is None:
         print "%f: Generating augmented xy-list" % time.clock()
         args.xy_list = "temp.axy"
         rc = subprocess.call(["augment-xylist",
@@ -180,10 +181,18 @@ if __name__ == "__main__":
     ast_db = AsterismDatabase(asterisms_gen(star_db))
 
     print "%f: Aligning image" % time.clock()
-    ps = args.pixel_scale * min(image.width, image.height) / 2592.
+    ps = 0.5 * args.pixel_scale * min(image.width, image.height) / 2592.
     bd = args.barrel_distortion * (2592. / min(image.width, image.height))**2
+    bd = 0.0
     cam_model = camera.BarrelDistortionCameraModel(ps, bd, image.width, image.height)
-    ra, dec, R = align_image(args.xy_list, cam_model, ast_db)
+    if args.xy_list is not None:
+        image_stars = stardb.xy_list_star_gen(args.xy_list, cam_model)
+    elif args.cat_file is not None:
+        image_stars = stardb.cat_star_gen(args.cat_file, cam_model)
+    else:
+        raise Exception("No xy points specified")
+    
+    ra, dec, R = align_image(image_stars, ast_db)
     print "RA: %s, Dec: %s" % (stardb.ra_to_str(ra), stardb.dec_to_str(dec))
 
     print "%f: Drawing stars" % time.clock()

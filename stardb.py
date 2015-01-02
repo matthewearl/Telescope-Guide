@@ -218,11 +218,26 @@ def xy_list_star_gen(axy_file, cam_model):
     with pyfits.open(axy_file) as hdulist:
         for i, (x, y, flux, bg) in enumerate(hdulist['SOURCES'].data):
             yield ImageStar("%s%u" % (axy_file, i), (x, y), cam_model, flux)
+
+def cat_star_gen(cat_file, cam_model):
+    """
+    Generate ImageStars from a sextractor .cat file.
+
+    """
+
+    with open(cat_file) as f:
+        for i, line in enumerate(f.readlines()):
+            if not line.startswith("#"):
+                m = re.match(r"([-.\d]+)\s+([-.\d]+)\s+([-.\d]+)", line)
+                yield ImageStar("%s%u" % (cat_file, i),
+                                (float(m.group(2)), float(m.group(3))),
+                                cam_model, -float(m.group(1)))
                           
 class StarDatabase(object):
     def __init__(self, star_iterable):
         self.stars = list(star_iterable)
         self.tree = scipy.spatial.KDTree(vstack([star.vec.T for star in self.stars]))
+        self.star_dict = dict((s.id, s) for s in self.stars)
 
     def search_vec(self, vec, radius):
         indices = self.tree.query_ball_point(vec.flat, radius)
@@ -239,6 +254,9 @@ class StarDatabase(object):
         return self.search_vec(angles_to_vec(ra, dec),
                                radius)
 
+    def __getitem__(self, key):
+        return self.star_dict[key]
+
 def main():
     print "Loading database..."
     db = StarDatabase(hip_star_gen('data/hip_main.dat'))
@@ -249,8 +267,23 @@ def main():
 
     for star, d in db.search(ra, dec, radius):
         print "%f: %s" % (d * 180. / math.pi, star)
+
+def _draw_image_stars(stars, image):
+    for star in stars:
+        coords = tuple(map(int, star.coords))
+        cv.Circle(image, coords, 5, cv.CV_RGB(0, 255, 0))
+    
     
 if __name__ == "__main__":
     #import cProfile
     #cProfile.run('main()')
-    main()
+    #main()
+    import camera
+    import cv
+    m = camera.BarrelDistortionCameraModel(1.0, 1.0, 100, 100)
+    stars = list(cat_star_gen("/home/matt/sextractor-test/test.cat", m))
+    stars = sorted(stars, key=(lambda x: -x.flux))[:1000]
+    image = cv.LoadImage("/media/vbox_d_drive/Photos/IMG_1511.JPG", True)
+    _draw_image_stars(stars, image)
+    cv.SaveImage("out.png", image)
+

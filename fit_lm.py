@@ -214,24 +214,29 @@ def matrix_normalize(m):
     m[3:4, :] = matrix([[0.0, 0.0, 0.0, 1.0]])
 
 def solve(world_points_in, image_points, annotate_images=None,
-          initial_matrices=None, initial_bd=0., initial_ps=3000., change_ps=False, change_bd=False):
+          initial_matrices=None, initial_bd=0., initial_ps=3000.,
+          change_ps=False, change_bd=False, change_pos=True):
     """
     Find a camera's orientation and pixel scale given a set of world
     coordinates and corresponding set of camera coordinates.
 
-    world_points: Dict mapping point names to triples corresponding with world
-                  x, y, z coordinates.
-    image_points: Array of dicts mapping point names to triples corresponding
-                  with camera x, y coordinates. Coordinates are translated such
-                  that 0, 0 corresponds with the centre of the image.
-                  One array element per source image.
-    annotate_images: Optional array of images to annotate with the fitted
+    world_points: Map of point names to triples corresponding with world
+                  (x, y, z) coordinates.
+    image_points: Iterable of dicts mapping point names to pairs
+                  corresponding with camera x, y coordinates. Coordinates
+                  should be translated such that 0, 0 corresponds with the
+                  centre of the image, and Y coordinates increase going top to
+                  bottom.  One element per source image.
+    annotate_images: Optional iterable of images to annotate with the fitted
                      points.
-    initial_matrices: Optional set of initial rotation matrices.
+    initial_matrices: Optional iterable of initial rotation matrices.
+    initial_bd: Optional initial barrel distortion to use.
+    initial_ps: Optional initial pixel scale to use.
     change_ps: If True, allow the pixel scale (zoom) to be varied. Algorithm
                can be unstable if initial guess is inaccurate.
     change_bd: If True, allow the barrel distortion to be varied. Algorithm
                can be unstable if initial guess is inaccurate.
+    change_pos: If True, allow the camera position to be varied.
 
     Return: 4x4 matrix representing the camera's orientation, and a pixel
             pixel scale.
@@ -240,7 +245,7 @@ def solve(world_points_in, image_points, annotate_images=None,
     assert all(set(world_points_in.keys()) >= set(p.keys()) for p in image_points)
     keys = [list(p.keys()) for p in image_points]
     world_points = [hstack([matrix(list(world_points_in[k]) + [1.0]).T for k in sub_keys]) for sub_keys in keys]
-    image_points = hstack([hstack([matrix(p[k].get_centre()).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
+    image_points = hstack([hstack([matrix(p[k]).T for k in sub_keys]) for p, sub_keys in zip(image_points, keys)])
 
     print image_points
 
@@ -267,6 +272,9 @@ def solve(world_points_in, image_points, annotate_images=None,
             J = hstack([J[:, :-2], J[:, -1:]])
         if not change_bd:
             J = J[:, :-1]
+        if not change_pos:
+            for i in xrange(len(keys)):
+                J[:, (6 * i):(6 * i + 3)] = zeros((J.shape[0], 3))
 
         # Invert the Jacobian and calculate the change in parameters.
         # Limit angle changes to avoid chaotic behaviour.
@@ -277,13 +285,15 @@ def solve(world_points_in, image_points, annotate_images=None,
         # stopped decreasing.
         err_float = (err.T * err)[0, 0]
         print "Error: %f" % err_float
+        print err
         if last_err_float != None and abs(err_float - last_err_float) < ERROR_CUTOFF:
             break
         last_err_float = err_float
 
         # Apply the parameter delta.
         for i in xrange(len(keys)):
-            current_mat[i] = util.matrix_trans(param_delta[6 * i + 0, 0], param_delta[6 * i + 1, 0], param_delta[6 * i + 2, 0]) * current_mat[i]
+            if change_pos:
+                current_mat[i] = util.matrix_trans(param_delta[6 * i + 0, 0], param_delta[6 * i + 1, 0], param_delta[6 * i + 2, 0]) * current_mat[i]
             current_mat[i] = util.matrix_rotate_x(param_delta[6 * i + 3, 0]) * current_mat[i]
             current_mat[i] = util.matrix_rotate_y(param_delta[6 * i + 4, 0]) * current_mat[i]
             current_mat[i] = util.matrix_rotate_z(param_delta[6 * i + 5, 0]) * current_mat[i]

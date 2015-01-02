@@ -80,6 +80,9 @@ class Feature(object):
     def get_centre(self):
         raise NotImplementedError()
 
+    def __iter__(self):
+        return iter(self.get_centre())
+
 class Ellipse(Feature):
     def __init__(self, moments, origin):
         self.origin = origin

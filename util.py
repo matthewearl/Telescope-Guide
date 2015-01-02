@@ -45,18 +45,20 @@ def left_inverse(A):
 def right_inverse(A):
     return A.T * (A * A.T).I
 
-def draw_points(image, points, color=(255, 255, 0)):
+def draw_points(image, points, color=(255, 255, 0),
+                circle_color=(0, 255, 0)):
     """
     Draw a set of points on an image.
 
     image: Image to draw points on.
     points: Dict of labels to 1x2 matrices representing pixel coordinates.
     """
-    font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8)
+    font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 0.2, 0.2, 0, 3, 8)
     for name, point in points.iteritems():
         point = (int(point[0, 0] + image.width/2),
                  int(image.height/2 - point[0, 1]))
         cv.PutText(image, str(name), point, font, cv.CV_RGB(*color))
+        cv.Circle(image, point, 5, cv.CV_RGB(*circle_color))
 
 
 def get_circle_pattern(roll_radius=None):
