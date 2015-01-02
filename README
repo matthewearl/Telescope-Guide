@@ -1,0 +1,45 @@
+<Insert general project description>
+
+HOWTO
+=====
+
+Obtain the HIP database
+-----------------------
+
+1. <Insert instructions on how to obtain hip_main.dat>
+2. Place hip_main.dat into data/
+
+
+Calibrate a camera from a star field image
+------------------------------------------
+
+1. Identify stars and their pixel coordinates.
+2. Update the dict at the bottom of calibrate_from_stars.py accordingly.
+3. Run ./calibrate_from_stars.
+4. Update CAMERAS with the obtained pixel scale and barrel distortion
+    parameter.
+
+
+Find camera orientation from a star field image
+-----------------------------------------------
+
+This requires the camera to have already been calibrated (see above).
+
+1. Use SExtractor to obtain a catalogue of stars from your image. SExtractor
+    requires a FITS image as input.
+
+2. Run astdb:
+
+    ./astdb.py -i <input image> -o <output image> -c <cat file> -p <ps> -b <bd>
+
+    <input image> is the star field being orientated. It should be the same
+    star field that was passed to SExtractor, although it should be in a format
+    that OpenCV can read (eg. JPEG).
+
+    <output image> will be a copy of input image, annotated with fitted star
+    labels.
+
+    <cat file> is the catalogue file produced by step 1.
+
+    <ps> and <bd> are the calibration parameters of the camera used to obtain
+    the star field.
