@@ -7,13 +7,16 @@ Obtain the HIP database
 -----------------------
 
 1. <Insert instructions on how to obtain hip_main.dat>
-2. Place hip_main.dat into data/
+2. Place hip_main.dat into data/.
 
 
 Calibrate a camera from a star field image
 ------------------------------------------
 
-1. Identify stars and their pixel coordinates.
+1. Identify stars names (as labelled in Hipparcos catalogue), and their pixel
+   coordinates. Stellarium can be used to find star names. An image editor (eg.
+   GIMP) can be used to find pixel coordinates. Five stars from the edge of the
+   image and five nearer the center should give an accurate calibration.
 2. Update the dict at the bottom of calibrate_from_stars.py accordingly.
 3. Run ./calibrate_from_stars.
 4. Update CAMERAS with the obtained pixel scale and barrel distortion

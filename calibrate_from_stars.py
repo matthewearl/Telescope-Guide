@@ -30,9 +30,11 @@ def calibrate(star_to_pixel, image_size, annotate_image=None):
 if __name__ == "__main__":
     import cv
 
+    # @@@ Make these parameters configurable by command line, possibly with a
+    # config file.
     im = cv.LoadImage('/media/vbox_d_drive/Photos/IMG_1559.JPG', True)
-        
-    print calibrate({
+
+    star_to_pixel = {
             "HIP 6686": (65, 1705),
             "HIP 4427": (278, 1576),
             "HIP 3179": (533, 1730),
@@ -41,9 +43,17 @@ if __name__ == "__main__":
             "HIP 111104": (1937, 1396),
             "HIP 112917": (1803, 1577),
             "HIP 112242": (1919, 1559),
-        },
-        (3888, 2592),
-        annotate_image=im)
+        }
+
+    # The above coordinates were obtained from the non-RAW JPEG image. We wish
+    # to obtain a calibration for the RAW CR2 image, so increase the pixel
+    # coords to account for the pixels that CR2->JPG conversion chops off.
+    star_to_pixel = dict((k, (v[0] + 11, v[1] + 5))
+                            for k, v in star_to_pixel.iteritems())
+        
+    print calibrate(star_to_pixel,
+                    (3906, 2602),    # RAW resolution.
+                    annotate_image=im)
 
     cv.SaveImage("out.png", im)
 

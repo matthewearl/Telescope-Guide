@@ -16,9 +16,9 @@ import util
 
 from numpy import *
 
-NUM_NEIGHBOURS = 6
+NUM_NEIGHBOURS = 8
 NEIGHBOUR_RADIUS = (3. * math.pi/180.)
-SCORE_THRESHOLD = 6
+SCORE_THRESHOLD = 11
 
 class CouldNotAlignError(Exception):
     pass
@@ -101,9 +101,10 @@ def align_image(image_stars, ast_db):
     for image_star in itertools.islice(
             sorted(image_star_db, key=lambda s: s.mag),
             0, 50):
+        print "Trying {}".format(image_star)
 
         scores = collections.defaultdict(int)
-
+        
         for query_ast in asterisms_for_star(image_star, image_star_db):
             closest = ast_db.search(query_ast)[0].main_star
             scores[closest] += 1
@@ -118,6 +119,8 @@ def align_image(image_stars, ast_db):
     best_scores = [x for x in best_scores if x[0] >= SCORE_THRESHOLD]
     if len(best_scores) == 0:
         raise CouldNotAlignError()
+
+    import pdb; pdb.set_trace()
 
     camera_points = hstack([image_star.vec for score, image_star, best_star in best_scores])
     world_points = hstack([best_star.vec for score, image_star, best_star in best_scores])
@@ -181,9 +184,8 @@ if __name__ == "__main__":
     ast_db = AsterismDatabase(asterisms_gen(star_db))
 
     print "%f: Aligning image" % time.clock()
-    ps = 0.5 * args.pixel_scale * min(image.width, image.height) / 2592.
+    ps = args.pixel_scale * min(image.width, image.height) / 2592.
     bd = args.barrel_distortion * (2592. / min(image.width, image.height))**2
-    bd = 0.0
     cam_model = camera.BarrelDistortionCameraModel(ps, bd, image.width, image.height)
     if args.xy_list is not None:
         image_stars = stardb.xy_list_star_gen(args.xy_list, cam_model)
