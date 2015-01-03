@@ -25,35 +25,50 @@ class CouldNotAlignError(Exception):
 
 class Asterism(object):
     def __init__(self, main_star, neighbours):
-        assert len(neighbours) == 3
+        assert len(neighbours) >= 3
 
         self.main_star = main_star
         self.neighbours = neighbours
         
+        # Calculate the neighbour vectors and distances relative to the main
+        # star. These lists are used throughout this function.
         diffs = [neigh.vec - main_star.vec for neigh in neighbours]
         dists = [linalg.norm(d) for d in diffs]
 
+        # Determine the index of the farthest neighbour, and the indices of
+        # all the other neighbours.
         max_idx = max(enumerate(dists), key=(lambda t: t[1]))[0]
-        other_idx = range(0,max_idx) + range(max_idx+1,3)
+        other_idx = range(0,max_idx) + range(max_idx+1,len(neighbours))
 
+        # Establish a reference frame based on the relative position of the
+        # main star from the farthest star.
         coord_frame = matrix(zeros((3,3)))
         coord_frame[:, 2] = main_star.vec
         coord_frame[:, 0] = cross(diffs[max_idx].T, coord_frame[:, 2].T).T
         coord_frame[:, 1] = cross(coord_frame[:,0].T, coord_frame[:,2].T).T
-
         for i in range(3):
             coord_frame[:, i] /= linalg.norm(coord_frame[:, i])
 
-        coord_frame *= dists[max_idx]
+        # Compute the positions of the other stars in this reference frame.
+        # This will normalise for rotation.  Divide by the distance of the
+        # furthest star to normalise for scale.  Ignore the Z-axis value (which
+        # will be approximately 1).
+        hash_matrix = ((1. / dists[max_idx]) * coord_frame.I *
+                        hstack(diffs[idx] for idx in other_idx))
+        hash_matrix = hash_matrix[:2, :]
 
-        hash_matrix = coord_frame.I * hstack([diffs[other_idx[0]], diffs[other_idx[1]]])
-        hash_matrix = hash_matrix[:2, :2]
+        # Normalise the column ordering. (The choice of ordering by X-axis
+        # value is fairly arbitrary.)
+        hash_matrix = hash_matrix[:, array(hash_matrix)[0, :].argsort()]
 
-        if hash_matrix[0, 0] > hash_matrix[0, 1]:
-            hash_matrix = fliplr(hash_matrix)
-
+        # Compose the final 1-D descriptor for this asterism. Include the
+        # asterism scale as the first element (we are working with a calibrated
+        # camera so scale invariance only serves to increase our search space).
+        # Normalise this element by the search radius so that it doesn't
+        # dominate.
         self.vec = vstack([matrix([[dists[max_idx] / NEIGHBOUR_RADIUS]]),
-                           hash_matrix.T.reshape((4,1))])
+                           hash_matrix.T.reshape(
+                               (len(neighbours) * 2 - 2 ,1))])
 
     def __repr__(self):
         return "<Asterism(main_star=%s, neighbours=%s, vec=%s)>" % (
@@ -75,8 +90,8 @@ def asterisms_for_star(main_star, star_db):
                                 if neighbour_star != main_star),
                               key=lambda x: x.mag))[:NUM_NEIGHBOURS]
 
-    for neighbour_pair in choose(neighbour_stars, 3):
-        ast = Asterism(main_star, neighbour_pair)
+    for neighbour_subset in choose(neighbour_stars, 3):
+        ast = Asterism(main_star, neighbour_subset)
         yield ast
 
 def asterisms_gen(star_db, main_max_mag=4.0):
