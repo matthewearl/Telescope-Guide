@@ -191,8 +191,6 @@ def bsc_star_gen(bsc_file='data/BSC5'):
             yield BscStar(f)
 
 def hip_star_gen(dat_file='data/hip_main.dat', mag_limit=9.5, use_cache=True):
-    from stardb import HipStar
-
     cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
 
     if use_cache and os.path.exists(cache_file_name):
@@ -256,6 +254,9 @@ class StarDatabase(object):
 
     def __getitem__(self, key):
         return self.star_dict[key]
+
+    def __len__(self):
+        return len(self.stars)
 
 def main():
     print "Loading database..."
