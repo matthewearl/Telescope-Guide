@@ -167,8 +167,10 @@ class HipStar(EquatorialStar):
 
         if not line[41:46].strip():
             raise InvalidFormatException()
-    
-        super(HipStar, self).__init__(id=("HIP %s" % line[8:14].strip()),
+
+        prefix = "HIP" if (line[0] == 'H') else "TYC"
+        id = "{} {}".format(prefix, line[2:14].strip())
+        super(HipStar, self).__init__(id=id,
                                       ra=parse_ra(line[17:28]),
                                       dec=parse_dec(line[29:40]),
                                       mag=float(line[41:46]))
@@ -197,6 +199,12 @@ def bsc_star_gen(bsc_file='data/BSC5'):
             yield BscStar(f)
 
 def hip_star_gen(dat_file='data/hip_main.dat', mag_limit=9.5, use_cache=True):
+    """Load stars from the Hipparcos/Tycho catalogs.
+
+    The input files must be in the following format:
+        ftp://cdsarc.u-strasbg.fr/pub/cats/I%2F239/ReadMe
+
+    """
     cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
 
     if use_cache and os.path.exists(cache_file_name):
