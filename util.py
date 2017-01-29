@@ -1,5 +1,4 @@
 import operator
-import cv
 import math
 import numpy
 import scipy.linalg
@@ -53,6 +52,7 @@ def draw_points(image, points, color=(255, 255, 0),
     image: Image to draw points on.
     points: Dict of labels to 1x2 matrices representing pixel coordinates.
     """
+    import cv
     font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 0.2, 0.2, 0, 3, 8)
     for name, point in points.iteritems():
         point = (int(point[0, 0] + image.width/2),

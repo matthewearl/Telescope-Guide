@@ -6,7 +6,7 @@ HOWTO
 Obtain the HIP database
 -----------------------
 
-1. <Insert instructions on how to obtain hip_main.dat>
+1. Download hip_main.dat from ftp://cdsarc.u-strasbg.fr/pub/cats/I/239.
 2. Place hip_main.dat into data/.
 
 

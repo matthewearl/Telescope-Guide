@@ -14,7 +14,7 @@ from numpy import *
 
 __all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen', 'HipStar']
 
-RA_RE = re.compile("([+-]?[0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
+RA_RE = re.compile("([+-]?)([0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
 DEC_RE = RA_RE
 
 class InvalidFormatException(Exception):
@@ -39,9 +39,12 @@ def parse_ra(s):
     m = RA_RE.match(s)
     if not m:
         raise InvalidFormatException()
-    coords = [float(m.group(i)) for i in [1,2,3]]
+    coords = [float(m.group(i)) for i in [2,3,4]]
     
     out = coords[0] + coords[1] / 60. + coords[2] / 3600.0
+
+    if m.group(1) == '-':
+        out = -out
 
     return out * 2. * math.pi / 24.
 
@@ -49,9 +52,12 @@ def parse_dec(s):
     m = DEC_RE.match(s)
     if not m:
         raise InvalidFormatException()
-    coords = [float(m.group(i)) for i in [1,2,3]]
+    coords = [float(m.group(i)) for i in [2,3,4]]
 
     out = coords[0] + coords[1] / 60. + coords[2] / 3600.0
+
+    if m.group(1) == '-':
+        out = -out
 
     return out * 2. * math.pi / 360.
 
