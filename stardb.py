@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import pyfits
 import os
@@ -12,7 +12,13 @@ import cPickle as pickle
 
 from numpy import *
 
-__all__ = ['StarDatabase', 'hip_star_gen', 'bsc_star_gen', 'xy_list_star_gen', 'HipStar']
+__all__ = (
+    'bsc_star_gen', 
+    'HipStar'
+    'hip_star_gen', 
+    'StarDatabase',
+    'xy_list_star_gen',
+)
 
 RA_RE = re.compile("([+-]?)([0-9]+)[: ]([0-9]+)[: ]([0-9]+\.[0-9]+)")
 DEC_RE = RA_RE
@@ -176,17 +182,14 @@ class HipStar(EquatorialStar):
                                       mag=float(line[41:46]))
 
 class ImageStar(Star):
-    def __init__(self, id, coords, cam_model, flux):
+    def __init__(self, id, coords, flux):
         self.coords = coords
-        self.cam_model = cam_model
         self.flux = flux
-        super(ImageStar, self).__init__(id=id,
-                                        vec=cam_model.pixel_to_vec(*coords),
-                                        mag=(-flux))
+        super(ImageStar, self).__init__(id=id, vec=coords, mag=(-flux))
 
     def __repr__(self):
-        return "<ImageStar(id=%s, coords=%s, cam_model=%s, flux=%s, vec=%s)>" % \
-                (self.id, self.coords, self.cam_model, self.flux, repr(self.vec))
+        return "<ImageStar(id=%s, coords=%s, flux=%s, vec=%s)>" % \
+                (self.id, self.coords, self.flux, repr(self.vec))
 
     def __str__(self):
         return "Flux: %f, Id: %s, Coords: %s" % (self.flux, self.id, self.coords)
@@ -248,7 +251,8 @@ def cat_star_gen(cat_file, cam_model):
 class StarDatabase(object):
     def __init__(self, star_iterable):
         self.stars = list(star_iterable)
-        self.tree = scipy.spatial.KDTree(vstack([star.vec.T for star in self.stars]))
+        self.tree = scipy.spatial.cKDTree(vstack([star.vec.T
+                                                    for star in self.stars]))
         self.star_dict = dict((s.id, s) for s in self.stars)
 
     def search_vec(self, vec, radius):

@@ -1,31 +1,24 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
-import subprocess
-import cv
-import sys
 import argparse
-import itertools
-import sys
-import math
-import time
-import stardb
-import scipy.spatial
-import camera
 import collections
-import util
+import itertools
+import logging
+import math
+import subprocess
+import sys
+import time
 
 from numpy import *
+import scipy.spatial
+
+import camera
+import stardb
+import util
 
 
-# When creating the asterism database the celestial sphere is
-# (quasi-efficiently) covered by circles of this radius. For each circle, the
-# brightest star within the circle is indexed (ie. asterisms with it as the
-# main star are added to the asterism database.)
-#
-# Indexing asterisms in this way means that any star in the source image that
-# has no brighter neighbours within a radius of 2 * ASTERISM_SEARCH_RADIUS
-# should have associated asterisms in the database.
-ASTERISM_SEARCH_RADIUS = (3. * math.pi/180.)
+LOG = logging.getLogger(__name__)
+
 
 # Radius around an asterism's main star to search for neighbours.
 NEIGHBOUR_RADIUS = (3. * math.pi/180.)
@@ -90,45 +83,40 @@ class Asterism(object):
         return "<Asterism(main_star=%s, neighbours=%s, vec=%s)>" % (
                 repr(self.main_star), repr(self.neighbours), repr(self.vec))
 
-def choose(l, n):
-    if n == 0:
-        yield []
-    elif len(l) != 0:
-        for c in choose(l[1:], n - 1):
-            yield [l[0]] + c
-        for c in choose(l[1:], n):
-            yield c
+class _NoAsterism:
+    pass
 
-def asterisms_for_star(main_star, star_db, num_neighbours=NUM_NEIGHBOURS):
-    neighbour_stars = list(sorted((neighbour_star
-                                for neighbour_star, dist
-                                in star_db.search_vec(main_star.vec, NEIGHBOUR_RADIUS)
-                                if neighbour_star != main_star),
-                              key=lambda x: x.mag))[:num_neighbours]
+def asterism_for_star(main_star, star_db, num_neighbours=NUM_NEIGHBOURS):
+    radius = math.pi / 180.
+    neighbours = []
+    while len(neighbours) < num_neighbours and radius < 3. * math.pi / 180:
+        neighbours = [(s, d) for s, d in
+                                star_db.search_vec(main_star.vec, radius)
+                           if s.mag < main_star.mag]
+        radius *= 2.
 
-    for neighbour_subset in choose(neighbour_stars, 3):
-        ast = Asterism(main_star, neighbour_subset)
-        yield ast
+    if len(neighbours) < num_neighbours:
+        raise _NoAsterism
 
-def asterisms_gen(star_db):
-    uncovered = set(s for s in star_db if s.mag < 6.0)
-    indexed = set()
-    while uncovered:
-        print "{} / {} uncovered. {} indexed.".format(
-                                    len(uncovered), len(star_db), len(indexed))
-        star = iter(uncovered).next()
+    neighbours = sorted(neighbours, key=lambda (s, d): d)[:num_neighbours]
 
-        neighbour_stars = set(s for s, d in
-                                      star_db.search_vec(
-                                          star.vec,
-                                          ASTERISM_SEARCH_RADIUS))
-        brightest_neighbour = min(neighbour_stars, key=lambda x: x.mag)
+    return Asterism(main_star, [s for s, d in neighbours])
 
-        if brightest_neighbour not in indexed:
-            for ast in asterisms_for_star(brightest_neighbour, star_db):
-                yield ast
-            indexed.add(brightest_neighbour)
-        uncovered -= neighbour_stars
+
+def asterisms_gen(star_db, mag_limit=8.0):
+    i = 0
+    num_asterisms = 0
+    for star in (s for s in star_db if s.mag < mag_limit):
+        if i % 500 == 0:
+            LOG.info("%s / %s. %s asterisms.",
+                     i, len(star_db), num_asterisms)
+        i += 1
+        try:
+            yield asterism_for_star(star, star_db)
+            num_asterisms += 1
+        except _NoAsterism:
+            pass
+    LOG.info("%s asterisms", num_asterisms)
 
 
 class AsterismDatabase(object):
@@ -137,7 +125,8 @@ class AsterismDatabase(object):
         self.asterism_dict = collections.defaultdict(set)
         for asterism in self.asterisms:
             self.asterism_dict[asterism.main_star.id].add(asterism)
-        self.tree = scipy.spatial.KDTree(vstack([ast.vec.T for ast in self.asterisms]))
+        self.tree = scipy.spatial.cKDTree(vstack([ast.vec.T
+                                                   for ast in self.asterisms]))
 
     def search(self, query_ast):
         dist, idx = self.tree.query(query_ast.vec.flat)
@@ -146,6 +135,7 @@ class AsterismDatabase(object):
 #@@@ WIP re-implementation of align_image().
 def align_image2(image_stars, ast_db):
     image_star_db = stardb.StarDatabase(image_stars)
+    assert False, "This needs removing"
 
     # Locate stars in the image that are the brightest star within a radius of
     # 2 * ASTERISM_SEARCH_RADIUS.  Such stars should have asterisms in the
@@ -177,6 +167,7 @@ def align_image2(image_stars, ast_db):
 
 def align_image(image_stars, ast_db):
     image_star_db = stardb.StarDatabase(image_stars)
+    assert False, "This needs removing"
 
     best_scores = []
     for image_star in itertools.islice(
@@ -217,6 +208,7 @@ def draw_stars(star_db, image, R, cam_model, mag_limit=4.0):
     """
     Draw stars on an image. The camera is assumed to be orientated at R.
     """
+    import cv
 
     for star in (s for s in star_db if s.mag < mag_limit):
         vec = R.T * star.vec
@@ -245,6 +237,7 @@ class StarAlignArgumentParser(argparse.ArgumentParser):
                           required=True)
 
 if __name__ == "__main__":
+    import cv
     args = StarAlignArgumentParser().parse_args()
 
     if args.xy_list is None and args.cat_file is None:
