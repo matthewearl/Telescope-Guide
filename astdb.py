@@ -2,11 +2,9 @@
 
 import argparse
 import collections
-import itertools
 import logging
 import math
 import subprocess
-import sys
 import time
 
 from numpy import *
@@ -19,15 +17,9 @@ import util
 
 LOG = logging.getLogger(__name__)
 
-
-# Radius around an asterism's main star to search for neighbours.
-NEIGHBOUR_RADIUS = (3. * math.pi/180.)
-
-# The brightest NUM_NEIGHBOURS stars within the NEIGHBOUR_RADIUS will be used
-# to create asterisms (NUM_NEIGHBOURS choose 3 asterisms per main star).
+# Each asterism consists of one star and NUM_NEIGHBOURS other stars.
 NUM_NEIGHBOURS = 3
 
-SCORE_THRESHOLD = 11
 
 class CouldNotAlignError(Exception):
     pass
@@ -52,7 +44,7 @@ class Asterism(object):
         # Establish a reference frame based on the relative position of the
         # main star from the farthest star.
         coord_frame = matrix(zeros((3,3)))
-        coord_frame[:, 2] = main_star.vec
+        coord_frame[:, 2] = main_star.normal
         coord_frame[:, 0] = cross(diffs[max_idx].T, coord_frame[:, 2].T).T
         coord_frame[:, 1] = cross(coord_frame[:,0].T, coord_frame[:,2].T).T
         for i in range(3):
@@ -70,26 +62,24 @@ class Asterism(object):
         # value is fairly arbitrary.)
         hash_matrix = hash_matrix[:, array(hash_matrix)[0, :].argsort()]
 
-        # Compose the final 1-D descriptor for this asterism. Include the
-        # asterism scale as the first element (we are working with a calibrated
-        # camera so scale invariance only serves to increase our search space).
-        # Normalise this element by the search radius so that it doesn't
-        # dominate.
-        self.vec = vstack([matrix([[dists[max_idx] / NEIGHBOUR_RADIUS]]),
-                           hash_matrix.T.reshape(
-                               (len(neighbours) * 2 - 2 ,1))])
+        # Compose the final 1-D descriptor for this asterism.
+        self.vec = hash_matrix.T.reshape((-1, 1))
 
     def __repr__(self):
-        return "<Asterism(main_star=%s, neighbours=%s, vec=%s)>" % (
-                repr(self.main_star), repr(self.neighbours), repr(self.vec))
+        return "<Asterism(main_star=%r, neighbours=%r, vec=%r)>" % (
+                        self.main_star, self.neighbours, self.vec)
 
 class _NoAsterism:
     pass
 
-def asterism_for_star(main_star, star_db, num_neighbours=NUM_NEIGHBOURS):
-    radius = math.pi / 180.
+def asterism_for_star(main_star,
+                      star_db,
+                      num_neighbours=NUM_NEIGHBOURS,
+                      start_radius=math.pi / 180,
+                      max_radius=2 * math.pi / 180):
+    radius = start_radius
     neighbours = []
-    while len(neighbours) < num_neighbours and radius < 3. * math.pi / 180:
+    while len(neighbours) < num_neighbours and radius <= max_radius:
         neighbours = [(s, d) for s, d in
                                 star_db.search_vec(main_star.vec, radius)
                            if s.mag < main_star.mag]
@@ -132,77 +122,29 @@ class AsterismDatabase(object):
         dist, idx = self.tree.query(query_ast.vec.flat)
         return self.asterisms[idx], dist
 
-#@@@ WIP re-implementation of align_image().
-def align_image2(image_stars, ast_db):
+
+def _calibrate_image_stars(image_stars, ast_db):
     image_star_db = stardb.StarDatabase(image_stars)
-    assert False, "This needs removing"
 
-    # Locate stars in the image that are the brightest star within a radius of
-    # 2 * ASTERISM_SEARCH_RADIUS.  Such stars should have asterisms in the
-    # database.
-    for image_star in itertools.islice(
-            sorted(image_star_db, key=lambda s: s.mag),
-            0, 50):
+    # Obtain a (reasonable) upper bound on maximum distance between any two
+    # image stars.
+    radius = linalg.norm(amax(hstack(s.vec for s in image_stars), axis=1))
 
-        brightest_star, _ = max(
-            image_star_db.search_vec(image_star.vec,
-                                     2 * ASTERISM_SEARCH_RADIUS),
-            key=(lambda (s, d): s.flux))
-
-        if brightest_star == image_star:
-            matches = []
-            
-            for query_ast in asterisms_for_star(image_star, image_star_db,
-                                                num_neighbours=6):
-                found_ast, dist = ast_db.search(query_ast)
-                matches.append((dist, found_ast.main_star))
-
-            print image_star
-            for dist, star in sorted(matches,
-                                      key=(lambda (d,s): -d)):
-                print "{}: {}".format(dist, star)
-            import pdb; pdb.set_trace()
+    for image_star in image_star_db:
+        try:
+            image_ast = asterism_for_star(image_star,
+                                          image_star_db,
+                                          start_radius=radius,
+                                          max_radius=radius)
+        except _NoAsterism:
+            LOG.debug("No asterism could be generated for %r", image_star)
             pass
+        else:
+            ast, dist = ast_db.search(image_ast)
+            LOG.debug("Matched %r with %r, distance = %r",
+                      image_star, ast.main_star, dist)
+            yield image_ast, ast, dist
 
-
-def align_image(image_stars, ast_db):
-    image_star_db = stardb.StarDatabase(image_stars)
-    assert False, "This needs removing"
-
-    best_scores = []
-    for image_star in itertools.islice(
-            sorted(image_star_db, key=lambda s: s.mag),
-            0, 50):
-        print "Trying {}".format(image_star)
-
-        scores = collections.defaultdict(int)
-        
-        for query_ast in asterisms_for_star(image_star, image_star_db,
-                                            num_neighbours=4):
-            closest = ast_db.search(query_ast)[0].main_star
-            scores[closest] += 1
-
-        import pdb; pdb.set_trace()
-
-        if scores:
-            best_star, score = max(scores.iteritems(), key=(lambda x: x[1]))
-            best_scores.append((score, image_star, best_star))
-            
-    for score, image_star, best_star in sorted(best_scores):
-        print "Best match for %s: %s (score %s)" % (image_star.coords, best_star.id, score)
-
-    best_scores = [x for x in best_scores if x[0] >= SCORE_THRESHOLD]
-    if len(best_scores) == 0:
-        raise CouldNotAlignError()
-
-    import pdb; pdb.set_trace()
-
-    camera_points = hstack([image_star.vec for score, image_star, best_star in best_scores])
-    world_points = hstack([best_star.vec for score, image_star, best_star in best_scores])
-
-    R, T = util.orientation_from_correspondences(camera_points, world_points)
-
-    return stardb.vec_to_angles(R[:, 2]) + (R,)
 
 def draw_stars(star_db, image, R, cam_model, mag_limit=4.0):
     """

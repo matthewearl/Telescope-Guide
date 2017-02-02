@@ -124,6 +124,10 @@ class Star(object):
         self.vec = vec
         self.mag = mag
 
+    @property
+    def normal(self):
+        return self.vec
+
     def __repr__(self):
         return "<Star(id={id}, vec={vec}, mag={mag})>".format(
                     id=self.id, vec=self.vec, mag=self.mag)
@@ -183,9 +187,14 @@ class HipStar(EquatorialStar):
 
 class ImageStar(Star):
     def __init__(self, id, coords, flux):
-        self.coords = coords
+        self.coords = tuple(coords)
         self.flux = flux
-        super(ImageStar, self).__init__(id=id, vec=coords, mag=(-flux))
+        vec = matrix([self.coords[0], -self.coords[1], 0.]).T
+        super(ImageStar, self).__init__(id=id, vec=vec, mag=(-flux))
+
+    @property
+    def normal(self):
+        return matrix([0, 0, 1.]).T
 
     def __repr__(self):
         return "<ImageStar(id=%s, coords=%s, flux=%s, vec=%s)>" % \
@@ -201,14 +210,26 @@ def bsc_star_gen(bsc_file='data/BSC5'):
         for i in range(header.num_stars):
             yield BscStar(f)
 
-def hip_star_gen(dat_file='data/hip_main.dat', mag_limit=9.5, use_cache=True):
+def hip_star_gen(dat_file='data/hip_main.dat',
+                 mag_limit=9.5,
+                 use_cache=True,
+                 filter_centre=None,
+                 filter_radius=None):
     """Load stars from the Hipparcos/Tycho catalogs.
 
     The input files must be in the following format:
         ftp://cdsarc.u-strasbg.fr/pub/cats/I%2F239/ReadMe
 
     """
-    cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
+    if filter_centre is None:
+        cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
+    else:
+        cache_file_name = "%s-%.2f-%s,%s-%.2f.pickle" % (
+                dat_file, mag_limit,
+                ra_to_str(filter_centre[0]),
+                dec_to_str(filter_centre[1]),
+                filter_radius * 180. / math.pi)
+        filter_centre_vec = angles_to_vec(*filter_centre)
 
     if use_cache and os.path.exists(cache_file_name):
         with open(cache_file_name, "r") as cache_file:
@@ -219,7 +240,10 @@ def hip_star_gen(dat_file='data/hip_main.dat', mag_limit=9.5, use_cache=True):
             for line in f.readlines():
                 try:
                     star = HipStar(line)
-                    if star.mag < mag_limit:
+                    if star.mag < mag_limit and (
+                            filter_centre is None or
+                            linalg.norm(star.vec - filter_centre_vec) <
+                                filter_radius):
                         stars.append(star)
                 except InvalidFormatException:
                     pass
