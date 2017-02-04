@@ -2,6 +2,7 @@
 
 import argparse
 import collections
+import itertools
 import logging
 import math
 import subprocess
@@ -76,7 +77,7 @@ def asterism_for_star(main_star,
                       star_db,
                       num_neighbours=NUM_NEIGHBOURS,
                       start_radius=math.pi / 180,
-                      max_radius=2 * math.pi / 180):
+                      max_radius=20 * math.pi / 180):
     radius = start_radius
     neighbours = []
     while len(neighbours) < num_neighbours and radius <= max_radius:
@@ -97,7 +98,7 @@ def asterisms_gen(star_db, mag_limit=8.0):
     i = 0
     num_asterisms = 0
     for star in (s for s in star_db if s.mag < mag_limit):
-        if i % 500 == 0:
+        if i % 5000 == 0:
             LOG.info("%s / %s. %s asterisms.",
                      i, len(star_db), num_asterisms)
         i += 1
@@ -121,6 +122,17 @@ class AsterismDatabase(object):
     def search(self, query_ast):
         dist, idx = self.tree.query(query_ast.vec.flat)
         return self.asterisms[idx], dist
+
+
+def _calibrate_image_stars2(image_stars, ast_db, brightest_n=10):
+    bright_im_stars = sorted(image_stars, key=lambda s: s.mag)[:brightest_n]
+
+    for stars in itertools.combinations(bright_im_stars, 4):
+        for i in range(3):
+            image_ast = Asterism(stars[i], stars[:i] + stars[i + 1:])
+            ast, dist = ast_db.search(image_ast)
+
+            yield image_ast, ast, dist
 
 
 def _calibrate_image_stars(image_stars, ast_db):

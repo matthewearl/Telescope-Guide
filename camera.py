@@ -1,12 +1,35 @@
 from numpy import *
 
-__all__ = ['CameraModel', 'BarrelDistortionCameraModel']
+import stardb
+
+
+__all__ = (
+    'CameraModel',
+    'BarrelDistortionCameraModel',
+)
+
 
 class CameraModel(object):
     def pixel_to_vec(self, x, y):
         raise NotImplementedException()
 
-class BarrelDistortionCameraModel(object):
+    def generate_image_stars(self, star_db, cam_matrix):
+        corners = cam_matrix * hstack(self.pixel_to_vec(x, y)
+                                            for x in (0, self.image_width)
+                                            for y in (0, self.image_height))
+        centre = mean(corners, axis=1)
+        radius = amax(linalg.norm(corners - centre, axis=0))
+
+        for star, _ in star_db.search_vec(centre, radius):
+            x, y = self.vec_to_pixel(cam_matrix.T * star.vec)
+            if (0 <= x <= self.image_width and
+                0 <= y <= self.image_height):
+               yield stardb.ImageStar("{} (I)".format(star.id),
+                                      (x, y),
+                                      -star.mag)
+
+
+class BarrelDistortionCameraModel(CameraModel):
     def __init__(self, pixel_scale, bd_coeff, image_width, image_height):
         self.pixel_scale = pixel_scale
         self.bd_coeff = bd_coeff

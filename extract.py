@@ -35,7 +35,7 @@ def get_stars_from_image(input_im):
     im_gray = (input_im.copy() if len(input_im.shape) == 0
                                else np.mean(input_im, axis=2)).astype(np.uint8)
 
-    median_subbed_im = im_gray - cv2.medianBlur(im_gray, 7).astype(np.float)
+    median_subbed_im = im_gray - cv2.medianBlur(im_gray, 35).astype(np.float)
 
     thr_im = 1.0 * (median_subbed_im > np.percentile(median_subbed_im, 99.))
 
