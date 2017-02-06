@@ -94,7 +94,7 @@ def asterism_for_star(main_star,
     return Asterism(main_star, [s for s, d in neighbours])
 
 
-def asterisms_gen(star_db, mag_limit=8.0):
+def asterisms_gen(star_db, mag_limit=None):
     i = 0
     num_asterisms = 0
     for star in (s for s in star_db if s.mag < mag_limit):

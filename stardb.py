@@ -213,17 +213,17 @@ def bsc_star_gen(bsc_file='data/BSC5'):
 def hip_star_gen(dat_file='data/hip_main.dat',
                  mag_limit=9.5,
                  use_cache=True,
-                 filter_centre=None,
-                 filter_radius=None):
+                 window=None):
     """Load stars from the Hipparcos/Tycho catalogs.
 
     The input files must be in the following format:
         ftp://cdsarc.u-strasbg.fr/pub/cats/I%2F239/ReadMe
 
     """
-    if filter_centre is None:
+    if window is None:
         cache_file_name = "%s-%.2f.pickle" % (dat_file, mag_limit)
     else:
+        filter_centre, filter_radius = window
         cache_file_name = "%s-%.2f-%s,%s-%.2f.pickle" % (
                 dat_file, mag_limit,
                 ra_to_str(filter_centre[0]),

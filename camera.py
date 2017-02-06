@@ -11,7 +11,13 @@ __all__ = (
 
 class CameraModel(object):
     def pixel_to_vec(self, x, y):
-        raise NotImplementedException()
+        raise NotImplementedException
+
+    def pixel_to_world_vec(self, x, y, cam_matrix):
+        return cam_matrix * self.pixel_to_vec(x, y)
+
+    def world_vec_to_pixel(self, world_vec, cam_matrix):
+        return self.vec_to_pixel(cam_matrix.T * world_vec)
 
     def generate_image_stars(self, star_db, cam_matrix):
         corners = cam_matrix * hstack(self.pixel_to_vec(x, y)
@@ -21,7 +27,7 @@ class CameraModel(object):
         radius = amax(linalg.norm(corners - centre, axis=0))
 
         for star, _ in star_db.search_vec(centre, radius):
-            x, y = self.vec_to_pixel(cam_matrix.T * star.vec)
+            x, y = self.world_vec_to_pixel(star.vec, cam_matrix)
             if (0 <= x <= self.image_width and
                 0 <= y <= self.image_height):
                yield stardb.ImageStar("{} (I)".format(star.id),

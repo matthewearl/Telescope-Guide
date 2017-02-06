@@ -15,16 +15,25 @@ import stardb
 
 LOG = logging.getLogger(__name__)
 
+def _get_contour_moments(contours, idx, gray_im):
+    contour = contours[idx]
+    
+    mask = np.zeros(gray_im.shape)
+    cv2.drawContours(mask, contours, idx, 1)
+    
+    m = cv2.moments(mask * gray_im)
 
-def _get_stars_from_thr_im(thr_im):
+    return m
+
+
+def _get_stars_from_thr_im(thr_im, gray_im):
     _, contours, _ = cv2.findContours(thr_im.astype(np.uint8),
                                       cv2.RETR_EXTERNAL,
                                       cv2.CHAIN_APPROX_NONE)
-
-    for contour in contours:
-        m = cv2.moments(contour)
+    for idx in range(len(contours)):
+        m = _get_contour_moments(contours, idx, gray_im)
         flux = m["m00"]
-        if flux != 0:
+        if m["m00"] != 0.:
             x, y = m["m10"] / m["m00"], m["m01"] / m["m00"]
             id = "{},{}".format(int(x), int(y))
 
@@ -32,14 +41,14 @@ def _get_stars_from_thr_im(thr_im):
 
 
 def get_stars_from_image(input_im):
-    im_gray = (input_im.copy() if len(input_im.shape) == 0
+    gray_im = (input_im.copy() if len(input_im.shape) == 0
                                else np.mean(input_im, axis=2)).astype(np.uint8)
 
-    median_subbed_im = im_gray - cv2.medianBlur(im_gray, 35).astype(np.float)
+    median_subbed_im = gray_im - cv2.medianBlur(gray_im, 55).astype(np.float)
 
     thr_im = 1.0 * (median_subbed_im > np.percentile(median_subbed_im, 99.))
 
-    for star in _get_stars_from_thr_im(thr_im):
+    for star in _get_stars_from_thr_im(thr_im, gray_im):
         yield star
 
 
