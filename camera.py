@@ -71,3 +71,35 @@ class BarrelDistortionCameraModel(CameraModel):
         py = -py + 0.5 * self.image_height
 
         return px, py
+
+    @classmethod
+    def make_from_correspondences_approx(cls,
+                                         vecs,
+                                         im_coords,
+                                         im_width,
+                                         im_height):
+        vecs = vstack([array(v).T for v in vecs])
+        im_coords = array(list(im_coords))
+
+        # Estimate the pixel scale based on mean deviation from the mean.
+        pixel_scale = (std(im_coords - mean(im_coords, axis=0)) /
+                            std(vecs - mean(vecs, axis=0)))
+
+        # Rescale the image coordinates and place them on the plane Z=1. Flip
+        # the Y-axis so that the parity matches that of `vecs`.
+        plane_im_coords = ((im_coords - 0.5 * array([im_width, im_height])) *
+                                array([1, -1]) / pixel_scale)
+        plane_im_coords = concatenate([plane_im_coords,
+                                       ones((im_coords.shape[0], 1))],
+                                       axis=1)
+
+        # Compute the camera matrix by finding the rotation that maps
+        # `plane_im_coords` onto `vecs`. Do this using the Kabsch Algorithm:
+        #     https://en.wikipedia.org/wiki/Kabsch_algorithm
+        U, _, Vt = linalg.svd(matmul(vecs.T, plane_im_coords))
+        R = matmul(U, Vt)
+        if linalg.det(R) < 0:
+            R = matmul(U * [1, 1, -1], Vt)
+
+        return cls(pixel_scale, 0, im_width, im_height), R
+
