@@ -60,8 +60,14 @@ class Asterism(object):
         hash_matrix = hash_matrix[:2, :]
 
         # Normalise the column ordering. (The choice of ordering by X-axis
-        # value is fairly arbitrary.)
-        hash_matrix = hash_matrix[:, array(hash_matrix)[0, :].argsort()]
+        # value is fairly arbitrary.)  Also re-order `neighbours` too so that 
+        # a similar pair of asterisms (according to the hash) will have
+        # corresponding neighbours.
+        other_argsort = array(hash_matrix)[0, :].argsort()
+        hash_matrix = hash_matrix[:, other_argsort]
+        neighbours_argsort = concatenate([array([max_idx]),
+                                          array(other_idx)[other_argsort]])
+        self.neighbours = [self.neighbours[i] for i in neighbours_argsort]
 
         # Compose the final 1-D descriptor for this asterism.
         self.vec = hash_matrix.T.reshape((-1, 1))
