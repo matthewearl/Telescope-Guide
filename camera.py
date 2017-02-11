@@ -1,6 +1,7 @@
 from numpy import *
 
 import stardb
+import util
 
 
 __all__ = (
@@ -63,18 +64,56 @@ def _projection_jacobians(points):
     return concatenate([xy_columns, z_column], axis=2)
 
 
+def _numerical_full_jacobian(world_points, cam_matrix, pixel_scale, epsilon):
+    """Compute the Jacobian of `_full_jacobian` numerically.
+
+    The result should converge to `_full_jacobian` as epsilon tends to zero.
+
+    """
+    def f(v, x_rot=0., y_rot=0., z_rot=0., pixel_scale_inc=0.):
+        cam_matrix_rotated = (matrix(cam_matrix) *
+                                util.matrix_rotate_x(x_rot)[:3, :3] *
+                                util.matrix_rotate_y(y_rot)[:3, :3] *
+                                util.matrix_rotate_z(z_rot)[:3, :3])
+
+        cam_model = BarrelDistortionCameraModel(pixel_scale + pixel_scale_inc,
+                                                0., 600, 600)
+
+        p = cam_model.world_vec_to_pixel(matrix(v).T, cam_matrix_rotated)
+        return array(p)[:, newaxis]
+
+    def d(v, x_rot=0., y_rot=0., z_rot=0., pixel_scale_inc=0.):
+        return (f(v, x_rot, y_rot, z_rot, pixel_scale_inc) - f(v)) / epsilon
+
+    return concatenate([concatenate([d(v, x_rot=epsilon),
+                                     d(v, y_rot=epsilon),
+                                     d(v, z_rot=epsilon),
+                                     d(v, pixel_scale_inc=epsilon)],
+                                    axis=1)
+                        for v in world_points],
+                       axis=0)
+
+
 def _full_jacobian(world_points, cam_matrix, pixel_scale):
-    """Return a (2 * N) * 4 jacobian describing the derivative of a set of
-       image points as the rotation about the X, Y, and Z axes varies, and the
-       pixel scale of the projection varies.
+    """Return the Jacobian of `CameraModel.world_vec_to_pixel`.
+
+    Columns correspond with:
+     * Rotation of the camera matrix clockwise about the X-axis.
+     * Rotation of the camera matrix clockwise about the Y-axis.
+     * Rotation of the camera matrix clockwise about the Z-axis.
+     * Increasing the pixel scale.
+
+    Rows correspond with flattened pixel coordinates.
 
     """
     cam_points = matmul(world_points, cam_matrix)
-
     projected_points = cam_points[:, :2] / cam_points[:, 2]
 
+    # Get the Jacobians of each point under rotation. The rotation is negated
+    # as the rotation is of the camera matrix rather than the points
+    # themselves.
     prescale_Js = matmul(_projection_jacobians(cam_points),
-                         _rotation_jacobians(cam_points))
+                         -_rotation_jacobians(cam_points))
 
     Js = concatenate([prescale_Js * pixel_scale,
                       projected_points[:, :, newaxis]],
