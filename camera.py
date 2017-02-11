@@ -35,6 +35,54 @@ class CameraModel(object):
                                       -star.mag)
 
 
+def _rotation_jacobians(points):
+    """Return a Nx3x3 array of N jacobians of a single point under rotation.
+
+    `points`: Nx3 array of points being rotated.
+
+    Returns: N 3x3 Jacobians, columns corresponding with rotations clockwise
+        about X, Y and Z axes respectively.  Rows corresponding with the
+        point's X, Y and Z coordinates respectively. 
+
+    """
+    return (cross(identity(3)[newaxis, :, :],
+                  points[:, :, newaxis],
+                  axis=1))
+
+
+def _projection_jacobians(points):
+    """Return a Nx2x3 array of N jacobians of a single point under projection. 
+
+    The projection is onto the Z=1 plane.
+
+    """
+    xy_columns = identity(2)[newaxis, :, :] / points[:, 2, newaxis, newaxis]
+
+    z_column = -points[:, :2, newaxis] / points[:, 2, newaxis, newaxis] ** 2 
+
+    return concatenate([xy_columns, z_column], axis=2)
+
+
+def _full_jacobian(world_points, cam_matrix, pixel_scale):
+    """Return a (2 * N) * 4 jacobian describing the derivative of a set of
+       image points as the rotation about the X, Y, and Z axes varies, and the
+       pixel scale of the projection varies.
+
+    """
+    cam_points = matmul(world_points, cam_matrix)
+
+    projected_points = cam_points[:, :2] / cam_points[:, 2]
+
+    prescale_Js = matmul(_projection_jacobians(cam_points),
+                         _rotation_jacobians(cam_points))
+
+    Js = concatenate([prescale_Js * pixel_scale,
+                      projected_points[:, :, newaxis]],
+                     axis=2) * array([1, -1])[newaxis, :, newaxis]
+
+    return concatenate(Js, axis=0)
+
+
 class BarrelDistortionCameraModel(CameraModel):
     def __init__(self, pixel_scale, bd_coeff, image_width, image_height):
         self.pixel_scale = pixel_scale
@@ -103,3 +151,11 @@ class BarrelDistortionCameraModel(CameraModel):
 
         return cls(pixel_scale, 0, im_width, im_height), R
 
+    @classmethod
+    def make_from_correspondences(cls, vecs, im_coords, im_width, im_height):
+        cam_approx, cam_matrix = cls.make_from_correspondences_approx(
+            vecs, im_coords, im_width, im_height)
+        pixel_scale = cam_approx.pixel_scale
+
+        J = _full_jacobian(vecs, cam_matrix, pixel_scale)
+        # @@@ Finish this off
