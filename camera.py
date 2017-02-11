@@ -1,12 +1,16 @@
+import logging
+
 from numpy import *
 
 import stardb
 import util
 
+LOG = logging.getLogger(__name__)
+
 
 __all__ = (
-    'CameraModel',
     'BarrelDistortionCameraModel',
+    'CameraModel',
 )
 
 
@@ -106,8 +110,11 @@ def _full_jacobian(world_points, cam_matrix, pixel_scale):
     Rows correspond with flattened pixel coordinates.
 
     """
+    cam_matrix = array(cam_matrix)
+    world_points = array(world_points)
+
     cam_points = matmul(world_points, cam_matrix)
-    projected_points = cam_points[:, :2] / cam_points[:, 2]
+    projected_points = cam_points[:, :2] / cam_points[:, newaxis, 2]
 
     # Get the Jacobians of each point under rotation. The rotation is negated
     # as the rotation is of the camera matrix rather than the points
@@ -159,12 +166,11 @@ class BarrelDistortionCameraModel(CameraModel):
 
         return px, py
 
-    @classmethod
-    def make_from_correspondences_approx(cls,
-                                         vecs,
-                                         im_coords,
-                                         im_width,
-                                         im_height):
+    @staticmethod
+    def _params_from_correspondences_approx(vecs,
+                                            im_coords,
+                                            im_width,
+                                            im_height):
         vecs = vstack([array(v).T for v in vecs])
         im_coords = array(list(im_coords))
 
@@ -184,17 +190,48 @@ class BarrelDistortionCameraModel(CameraModel):
         # `plane_im_coords` onto `vecs`. Do this using the Kabsch Algorithm:
         #     https://en.wikipedia.org/wiki/Kabsch_algorithm
         U, _, Vt = linalg.svd(matmul(vecs.T, plane_im_coords))
-        R = matmul(U, Vt)
-        if linalg.det(R) < 0:
-            R = matmul(U * [1, 1, -1], Vt)
+        cam_matrix = matmul(U, Vt)
+        if linalg.det(cam_matrix) < 0:
+            cam_matrix = matmul(U * [1, 1, -1], Vt)
 
-        return cls(pixel_scale, 0, im_width, im_height), R
+        return pixel_scale, cam_matrix
 
     @classmethod
-    def make_from_correspondences(cls, vecs, im_coords, im_width, im_height):
-        cam_approx, cam_matrix = cls.make_from_correspondences_approx(
-            vecs, im_coords, im_width, im_height)
-        pixel_scale = cam_approx.pixel_scale
+    def make_from_correspondences(cls,
+                                  vecs,
+                                  im_coords,
+                                  im_width,
+                                  im_height,
+                                  num_iterations):
+        vecs = vstack([array(v).T for v in vecs])
+        im_coords = array(list(im_coords))
 
-        J = _full_jacobian(vecs, cam_matrix, pixel_scale)
-        # @@@ Finish this off
+        pixel_scale, cam_matrix = cls._params_from_correspondences_approx(
+                                    vecs, im_coords, im_width, im_height)
+    
+        for iteration_index in range(num_iterations):
+            cam = cls(pixel_scale, 0., im_width, im_height)
+
+            J = _full_jacobian(vecs, cam_matrix, pixel_scale)
+
+            err = im_coords - stack([array(cam.world_vec_to_pixel(
+                                               matrix(v).T,
+                                               cam_matrix))
+                                      for v in vecs])
+            LOG.debug("Iteration %s, error %s",
+                      iteration_index, 
+                      linalg.norm(err))
+
+            x_rot, y_rot, z_rot, pixel_scale_increase = (
+                    matmul(linalg.pinv(J), err.reshape((-1, 1)))).flat
+
+            pixel_scale += pixel_scale_increase
+            cam_matrix = matmul(cam_matrix,
+                                array(util.matrix_rotate_x(x_rot)[:3, :3] *
+                                      util.matrix_rotate_y(y_rot)[:3, :3] *
+                                      util.matrix_rotate_z(z_rot)[:3, :3]))
+
+        cam = cls(pixel_scale, 0., im_width, im_height)
+
+        return cam, cam_matrix
+
