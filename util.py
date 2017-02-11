@@ -70,7 +70,7 @@ def plot_image_star_labels(im_stars, labels):
         plt.text(x, y, label)
 
 
-def plot_image_stars(im_stars, size=1.0):
+def plot_image_stars(im_stars, size=1.0, color='blue', alpha=1.0):
     """Plot image stars.
 
     `size` is the size that a magnitude 0 star will be plotted. The area of a
@@ -84,7 +84,7 @@ def plot_image_stars(im_stars, size=1.0):
 
     s = size * numpy.sqrt(2.512 ** (-M[2]))
 
-    plt.scatter(M[0], M[1], s=s)
+    plt.scatter(M[0], M[1], s=s, color=color, alpha=alpha)
 
 
 def plot_image_asterisms(im_asts, color='k', line_width=1.):
@@ -117,7 +117,8 @@ def plot_star_labels(stars, cam, cam_matrix, labels=None):
             plt.text(x, y, label)
 
 
-def plot_stars(star_db, cam, cam_matrix, size_scale=.1):
+def plot_stars(star_db, cam, cam_matrix,
+               color='blue', size_scale=.1, alpha=1.0):
     """Plot stars according to a camera model and orientation.
 
     `cam` is a `camera.CameraModel`.
@@ -128,7 +129,7 @@ def plot_stars(star_db, cam, cam_matrix, size_scale=.1):
     """
     size = (size_scale / math.atan(1 / cam.pixel_scale))
     plot_image_stars(cam.generate_image_stars(star_db, cam_matrix),
-                     size=size)
+                     size=size, color=color, alpha=alpha)
 
 
 def plot_asterisms(asts, cam, cam_matrix, color='k', line_width=1.):
