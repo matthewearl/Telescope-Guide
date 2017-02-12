@@ -130,7 +130,12 @@ class AsterismDatabase(object):
         return self.asterisms[idx], dist
 
 
-def _calibrate_image_stars2(image_stars, ast_db, brightest_n=10):
+def _generate_asterism_pairs_brute_force(image_stars, ast_db, brightest_n=10):
+    """Find asterisms in an image, and corresponding asterisms in a star DB.
+    
+    This method considers all combinations of the top 10 brightest stars.
+
+    """
     bright_im_stars = sorted(image_stars, key=lambda s: s.mag)[:brightest_n]
 
     for stars in itertools.combinations(bright_im_stars, 4):
@@ -141,7 +146,13 @@ def _calibrate_image_stars2(image_stars, ast_db, brightest_n=10):
             yield image_ast, ast, dist
 
 
-def _calibrate_image_stars(image_stars, ast_db):
+def _generate_asterism_pairs(image_stars, ast_db):
+    """Find asterisms in an image, and corresponding asterisms in a star DB.
+    
+    This method attempts to generate an image asterism for each star, using the
+    nearest 3 other stars which are brighter than the main star.
+
+    """
     image_star_db = stardb.StarDatabase(image_stars)
 
     # Obtain a (reasonable) upper bound on maximum distance between any two
@@ -162,6 +173,47 @@ def _calibrate_image_stars(image_stars, ast_db):
             LOG.debug("Matched %r with %r, distance = %r",
                       image_star, ast.main_star, dist)
             yield image_ast, ast, dist
+
+
+def calibrate_image_from_asterism_pairs(asterism_pairs,
+                                        im_width,
+                                        im_height,
+                                        max_err=5.,
+                                        min_pairs=3):
+    asterism_pairs = sorted(asterism_pairs, key=lambda x: x[2])
+
+    def ast_pairs_to_vecs_and_coords(pairs):
+        im_coords = []
+        vecs = []
+        for image_ast, ast in pairs:
+            im_coords.append(image_ast.main_star.coords)
+            vecs.append(ast.main_star.vec)
+            for n1, n2 in zip(image_ast.neighbours, ast.neighbours):
+                im_coords.append(n1.coords)
+                vecs.append(n2.vec)
+        return vecs, im_coords
+        
+    for i, (image_ast, ast, dist) in enumerate(asterism_pairs):
+        LOG.debug("Starting new set (%s / %s). Dist: %s",
+                  i, len(asterism_pairs), dist)
+        pairs = [(image_ast, ast)]
+        for j, (image_ast2, ast2, _) in enumerate(asterism_pairs):
+            if i == j:
+                continue
+
+            vecs, im_coords = ast_pairs_to_vecs_and_coords(pairs)
+            cam, cam_matrix, err = (camera.BarrelDistortionCameraModel.
+                make_from_correspondences(vecs,
+                                          im_coords,
+                                          im_width,
+                                          im_height,
+                                          10))
+            if err < max_err: 
+                LOG.debug("Adding pair. %s pairs. Err: %s", len(pairs), err)
+                pairs.append((image_ast2, ast2))
+                if len(pairs) >= min_pairs:
+                    return pairs, cam, cam_matrix
+        LOG.debug("len(pairs) = %s", len(pairs))
 
 
 def draw_stars(star_db, image, R, cam_model, mag_limit=4.0):

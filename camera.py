@@ -203,24 +203,30 @@ class BarrelDistortionCameraModel(CameraModel):
                                   im_width,
                                   im_height,
                                   num_iterations):
+        """Make a camera from pairs of world vectors and image coordinates.
+
+        """
         vecs = vstack([array(v).T for v in vecs])
         im_coords = array(list(im_coords))
 
         pixel_scale, cam_matrix = cls._params_from_correspondences_approx(
                                     vecs, im_coords, im_width, im_height)
+
+        def get_err():
+            return im_coords - stack([array(cam.world_vec_to_pixel(
+                                               matrix(v).T,
+                                               cam_matrix))
+                                      for v in vecs])
     
         for iteration_index in range(num_iterations):
             cam = cls(pixel_scale, 0., im_width, im_height)
 
             J = _full_jacobian(vecs, cam_matrix, pixel_scale)
 
-            err = im_coords - stack([array(cam.world_vec_to_pixel(
-                                               matrix(v).T,
-                                               cam_matrix))
-                                      for v in vecs])
+            err = get_err()
             LOG.debug("Iteration %s, error %s",
                       iteration_index, 
-                      linalg.norm(err))
+                      linalg.norm(err) / len(vecs))
 
             x_rot, y_rot, z_rot, pixel_scale_increase = (
                     matmul(linalg.pinv(J), err.reshape((-1, 1)))).flat
@@ -233,5 +239,8 @@ class BarrelDistortionCameraModel(CameraModel):
 
         cam = cls(pixel_scale, 0., im_width, im_height)
 
-        return cam, cam_matrix
+        err = get_err()
+        LOG.debug("Final error %s", linalg.norm(err) / len(vecs))
+
+        return cam, cam_matrix, linalg.norm(err) / len(vecs)
 
