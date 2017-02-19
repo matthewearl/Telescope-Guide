@@ -194,7 +194,7 @@ def calibrate_image_from_asterism_pairs(asterism_pairs,
         return vecs, im_coords
         
     for i, (image_ast, ast, dist) in enumerate(asterism_pairs):
-        LOG.debug("Starting new set (%s / %s). Dist: %s",
+        LOG.info("Starting new set (%s / %s). Dist: %s",
                   i, len(asterism_pairs), dist)
         pairs = [(image_ast, ast)]
         for j, (image_ast2, ast2, _) in enumerate(asterism_pairs):

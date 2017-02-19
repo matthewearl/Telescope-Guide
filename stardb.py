@@ -241,7 +241,7 @@ def hip_star_gen(dat_file='data/hip_main.dat',
                 try:
                     star = HipStar(line)
                     if star.mag < mag_limit and (
-                            filter_centre is None or
+                            window is None or
                             linalg.norm(star.vec - filter_centre_vec) <
                                 filter_radius):
                         stars.append(star)

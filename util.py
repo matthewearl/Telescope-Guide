@@ -30,7 +30,7 @@ WINDOWS = {
     "orion": ((1.465, 0.), 30 * math.pi / 180),
     "orion_nebula": ((1.465, -0.1), 3. * math.pi / 180),
     "andromeda": ((0.18631389765039466, 0.7202392046563266), 5 * math.pi / 180),
-    "all": (None, None),
+    "all": None,
 }
 
 

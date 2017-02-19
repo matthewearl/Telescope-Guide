@@ -14,6 +14,13 @@ __all__ = (
 )
 
 
+class NovaCalibrationFailed(Exception):
+    """The provided nova results did not successfully calibrate.
+    
+    Raised by `BarrelDistortionCameraModel.make_from_nova_results`.
+
+    """
+
 class CameraModel(object):
     def pixel_to_vec(self, x, y):
         raise NotImplementedException
@@ -243,4 +250,42 @@ class BarrelDistortionCameraModel(CameraModel):
         LOG.debug("Final error %s", linalg.norm(err) / len(vecs))
 
         return cam, cam_matrix, linalg.norm(err) / len(vecs)
+
+    @classmethod
+    def make_from_nova_results(cls, nova_results, im_width, im_height):
+        """Get a camera and matrix from a nova.astrometry.net results object.
+
+        The pixel scale will deviate slightly for wider FoV images as a result
+        of the radius provided by nova.astrometry.net being innaccurate.
+
+        Arguments:
+            `nova_results`: A `nova.astrometry.net` job info object. Such an
+                object can be retrieved from:
+                    http://nova.astrometry.net/api/jobs/<job id>/info
+            `im_width`, `im_height`: The width and height of the output image.
+                This can differ in size to the original image (as passed into
+                the astrometry.net solver) but it should be the same aspect
+                ratio.
+
+        """
+        if nova_results['status'] != 'success':
+            raise NovaCalibrationFailed("Status is {}".format(
+                        nova_results['status']))
+        if nova_results['calibration']['parity'] != 1.0:
+            raise NovaCalibrationFailed("Flipped parity unsupported")
+
+        ra = nova_results['calibration']['ra'] * math.pi / 180.
+        dec = nova_results['calibration']['dec'] * math.pi / 180.
+        orientation = (nova_results['calibration']['orientation'] * math.pi /
+                            180.)
+        radius = nova_results['calibration']['radius'] * math.pi / 180.
+
+        cam_matrix = (util.matrix_rotate_y(-ra) *
+                        util.matrix_rotate_x(-dec) *
+                        util.matrix_rotate_z(orientation + math.pi))[:3, :3]
+
+        pixel_scale = (0.5 * (im_width ** 2. + im_height ** 2.) ** 0.5 / 
+                            radius)
+
+        return cls(pixel_scale, 0, im_width, im_height), cam_matrix
 
